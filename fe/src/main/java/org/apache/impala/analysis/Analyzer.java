@@ -113,6 +113,7 @@ import org.apache.impala.service.FeSupport;
 import org.apache.impala.thrift.QueryConstants;
 import org.apache.impala.thrift.TAccessEvent;
 import org.apache.impala.thrift.TCatalogObjectType;
+import org.apache.impala.thrift.TExecutorGroupSet;
 import org.apache.impala.thrift.TImpalaQueryOptions;
 import org.apache.impala.thrift.TLineageGraph;
 import org.apache.impala.thrift.TNetworkAddress;
@@ -128,6 +129,7 @@ import org.apache.impala.util.IntIterator;
 import org.apache.impala.util.KuduUtil;
 import org.apache.impala.util.ListMap;
 import org.apache.impala.util.MetaStoreUtil;
+import org.apache.impala.util.RequestPoolService;
 import org.apache.impala.util.TSessionStateUtil;
 import org.apache.kudu.client.KuduClient;
 import org.github.jamm.CannotAccessFieldException;
@@ -626,6 +628,10 @@ public class Analyzer {
     // Set by Frontend.java.
     private int availableCoresPerNode_ = -1;
 
+    // Maximum memory limit of destination request pool for this query in bytes.
+    // Value 0 or less means unknown. Set by Frontend.java.
+    private long poolMemLimit_ = -1;
+
     // Cache of KuduTables opened for this query. (map from table name to kudu table)
     // This cache prevent multiple openTable calls for a given table in the same query.
     public final Map<String, org.apache.kudu.client.KuduTable> kuduTables =
@@ -744,6 +750,52 @@ public class Analyzer {
     Preconditions.checkArgument(x > 0);
     globalState_.availableCoresPerNode_ =
         Math.min(QueryConstants.MAX_FRAGMENT_INSTANCES_PER_NODE, x);
+  }
+
+  /**
+   * Return maximum memory limit per executor host, in bytes unit, that will be enforced
+   * by the Admission Controller. PlanNodes can use this information to lower
+   * its memory estimates since Admission Controller will not allow query
+   * to grow its memory usage in single executor host beyond the value returned here.
+   * This method is maintained to match order in ScheduleState::UpdateMemoryRequirements.
+   */
+  public long getMaxMemLimitPerHost(boolean isCoordinatorFragment) {
+    TQueryOptions opts = getQueryOptions();
+
+    if (opts.isSetMem_limit() && opts.getMem_limit() > 0) {
+      // MEM_LIMIT
+      return opts.getMem_limit();
+    } else if (isCoordinatorFragment && opts.isSetMem_limit_coordinators()
+        && opts.getMem_limit_coordinators() > 0) {
+      // MEM_LIMIT_COORDINATORS
+      return opts.getMem_limit_coordinators();
+    } else if (!isCoordinatorFragment && opts.isSetMem_limit_executors()
+        && opts.getMem_limit_executors() > 0) {
+      // MEM_LIMIT_EXECUTORS
+      return opts.getMem_limit_executors();
+    } else if (globalState_.poolMemLimit_ > 0) {
+      // impala.admission-control.max-query-mem-limit.<pool_name>
+      return globalState_.poolMemLimit_;
+    } else if (opts.isSetMax_mem_estimate_for_admission()
+        && opts.getMax_mem_estimate_for_admission() > 0) {
+      // MAX_MEM_ESTIMATE_FOR_ADMISSION
+      return opts.getMax_mem_estimate_for_admission();
+    }
+    return Long.MAX_VALUE;
+  }
+
+  /**
+   * Update poolMemLimit_ for this query if given 'groupSet' has
+   * max-query-mem-limit configured
+   * (impala.admission-control.max-query-mem-limit.<pool_name> in llama file).
+   */
+  public void setPoolMemLimit(TExecutorGroupSet groupSet) {
+    Preconditions.checkNotNull(groupSet);
+    if (RequestPoolService.getInstance() != null && groupSet.getMax_mem_limit() > 0) {
+      // Only respect max_mem_limit from groupSet if RequestPoolService is configured
+      // (fair_scheduler_allocation_path flag is not empty).
+      globalState_.poolMemLimit_ = groupSet.getMax_mem_limit();
+    }
   }
 
   public int getMinParallelismPerNode() {

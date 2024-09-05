@@ -67,10 +67,8 @@ import org.apache.impala.thrift.TPlanNode;
 import org.apache.impala.thrift.TQueryCtx;
 import org.apache.impala.thrift.TQueryExecRequest;
 import org.apache.impala.thrift.TQueryOptions;
-import org.apache.impala.thrift.TReplicaPreference;
 import org.apache.impala.thrift.TScanRangeLocationList;
 import org.apache.impala.thrift.TScanRangeSpec;
-import org.apache.impala.thrift.TSlotCountStrategy;
 import org.apache.impala.thrift.TTableDescriptor;
 import org.apache.impala.thrift.TTableSink;
 import org.apache.impala.thrift.TTupleDescriptor;
@@ -106,7 +104,7 @@ public class PlannerTestBase extends FrontendTestBase {
   // Map from table ID (TTableId) to the table descriptor with that ID.
   private final Map<Integer, TTableDescriptor> tableMap_ = Maps.newHashMap();
 
-  protected static void setUpWithSize(int num_executors, int expected_num_executors)
+  protected static void setUpTestCluster(int num_executors, int expected_num_executors)
       throws Exception {
     TUpdateExecutorMembershipRequest updateReq = new TUpdateExecutorMembershipRequest();
     updateReq.setIp_addresses(Sets.newHashSet("127.0.0.1"));
@@ -117,7 +115,9 @@ public class PlannerTestBase extends FrontendTestBase {
     updateReq.setExec_group_sets(new ArrayList<TExecutorGroupSet>());
     updateReq.getExec_group_sets().add(group_set);
     ExecutorMembershipSnapshot.update(updateReq);
+  }
 
+  protected static void setUpKuduClientAndLogDir() {
     kuduClient_ = new KuduClient.KuduClientBuilder("127.0.0.1:7051").build();
     String logDir = System.getenv("IMPALA_FE_TEST_LOGS_DIR");
     if (logDir == null) logDir = "/tmp";
@@ -128,7 +128,8 @@ public class PlannerTestBase extends FrontendTestBase {
   public static void setUp() throws Exception {
     // Mimic the 3 node test mini-cluster.
     // 20 is the default num_expected_executors startup flag.
-    setUpWithSize(3, 20);
+    setUpTestCluster(3, 20);
+    setUpKuduClientAndLogDir();
   }
 
   @Before
@@ -420,18 +421,6 @@ public class PlannerTestBase extends FrontendTestBase {
     /* Disable minmax filter on partition columns. */
     options.setMinmax_filter_partition_columns(false);
     return options;
-  }
-
-  protected static TQueryOptions tpcdsParquetCpuCostQueryOptions() {
-    return tpcdsParquetQueryOptions()
-        .setCompute_processing_cost(true)
-        .setMax_fragment_instances_per_node(12)
-        .setReplica_preference(TReplicaPreference.REMOTE)
-        .setSlot_count_strategy(TSlotCountStrategy.PLANNER_CPU_ASK)
-        .setPlanner_testcase_mode(true)
-        // Required so that output doesn't vary by whether scanned tables have stats &
-        // numRows property or not.
-        .setDisable_hdfs_num_rows_estimate(true);
   }
 
   protected static Set<PlannerTestOption> tpcdsParquetTestOptions() {
