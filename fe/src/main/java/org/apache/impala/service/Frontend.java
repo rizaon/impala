@@ -2059,7 +2059,6 @@ public class Frontend {
   public static List<TExecutorGroupSet> setupThresholdsForExecutorGroupSets(
       List<TExecutorGroupSet> executorGroupSets, String request_pool,
       boolean default_executor_group, boolean test_replan) throws ImpalaException {
-    RequestPoolService poolService = RequestPoolService.getInstance();
 
     List<TExecutorGroupSet> result = Lists.newArrayList();
     if (default_executor_group) {
@@ -2110,6 +2109,7 @@ public class Frontend {
     }
 
     // Executor groups exist in the cluster. Identify those that can be used.
+    RequestPoolService poolService = RequestPoolService.getInstance();
     for (TExecutorGroupSet e : executorGroupSets) {
       // If defined, request_pool can be a suffix of the group name prefix. For example
       //   group_set_prefix = root.queue1
@@ -2125,8 +2125,10 @@ public class Frontend {
         TPoolConfig poolConfig =
             poolService.getPoolConfig(e.getExec_group_name_prefix());
         Preconditions.checkNotNull(poolConfig);
-        new_entry.setMax_mem_limit(poolConfig.getMax_query_mem_limit() > 0 ?
-            poolConfig.getMax_query_mem_limit() : Long.MAX_VALUE);
+        boolean isClampMemory = poolConfig.isClamp_mem_limit_query_option()
+            && poolConfig.getMax_query_mem_limit() > 0;
+        new_entry.setMax_mem_limit(
+            isClampMemory ? poolConfig.getMax_query_mem_limit() : Long.MAX_VALUE);
         new_entry.setNum_cores_per_executor(
             poolConfig.getMax_query_cpu_core_per_node_limit() > 0 ?
             (int)poolConfig.getMax_query_cpu_core_per_node_limit() : Integer.MAX_VALUE);
@@ -2627,6 +2629,7 @@ public class Frontend {
         expectedNumExecutor(planCtx.compilationState_.getGroupSet()));
     analysisResult.getAnalyzer().setAvailableCoresPerNode(
         Math.max(1, planCtx.compilationState_.getAvailableCoresPerNode()));
+    analysisResult.getAnalyzer().setPoolMemLimit(planCtx.compilationState_.getGroupSet());
 
     try {
       TQueryOptions queryOptions = queryCtx.client_request.query_options;

@@ -33,8 +33,10 @@ public class ResourceProfile {
   private final boolean isValid_;
 
   // Estimated memory consumption in bytes. Guaranteed to be >= minReservationBytes_ if
-  // both are set and guaranteed to be <= maxMemReservationBytes_ if both are set (the
-  // constructor ensures both of these conditions).
+  // both are set. It is, however, not guaranteed to be <= maxMemReservationBytes_ if
+  // this ResourceProfile is not instantiated from ResourceProfileBuilder.build().
+  // See other instantiation in sum(), max(), combine(), multiply() method below where
+  // memEstimateBytes_ <= maxMemReservationBytes_ is not guaranteed.
   private final long memEstimateBytes_;
 
   // Minimum memory reservation required to execute in bytes.
@@ -146,9 +148,10 @@ public class ResourceProfile {
     return new ResourceProfile(true,
         MathUtil.saturatingAdd(getMemEstimateBytes(), other.getMemEstimateBytes()),
         MathUtil.saturatingAdd(
-            getMinMemReservationBytes(),other.getMinMemReservationBytes()),
+            getMinMemReservationBytes(), other.getMinMemReservationBytes()),
         MathUtil.saturatingAdd(
-            getMaxMemReservationBytes(), other.getMaxMemReservationBytes()), -1, -1,
+            getMaxMemReservationBytes(), other.getMaxMemReservationBytes()),
+        -1, -1,
         MathUtil.saturatingAdd(getThreadReservation(), other.getThreadReservation()));
   }
 

@@ -61,7 +61,7 @@ import com.google.common.collect.Lists;
  * Aggregation computation.
  *
  */
-public class AggregationNode extends PlanNode {
+public class AggregationNode extends PlanNode implements SpillableOperator {
   private static final Logger LOG = LoggerFactory.getLogger(AggregationNode.class);
 
   // Default per-instance memory requirement used if no valid stats are available.
@@ -860,20 +860,50 @@ public class AggregationNode extends PlanNode {
 
   @Override
   public void computeNodeResourceProfile(TQueryOptions queryOptions) {
+    computeResourceProfileIfSpill(queryOptions, Long.MAX_VALUE);
+  }
+
+  @Override
+  public void computeResourceProfileIfSpill(
+      TQueryOptions queryOptions, long maxMemoryEstimatePerInstance) {
+    boolean biasToSpill = shouldComputeResourcesWithSpill(queryOptions);
+    if (!biasToSpill) {
+      Preconditions.checkArgument(maxMemoryEstimatePerInstance == Long.MAX_VALUE);
+    }
     resourceProfiles_ = Lists.newArrayListWithCapacity(aggInfos_.size());
     resourceProfiles_.clear();
     AggregationNode prevAgg = getPrevAggInputNode();
     for (AggregateInfo aggInfo : aggInfos_) {
-      resourceProfiles_.add(computeAggClassResourceProfile(
-          queryOptions, aggInfo, getAggClassNumGroup(prevAgg, aggInfo)));
+      resourceProfiles_.add(computeAggClassResourceProfile(queryOptions, aggInfo,
+          getAggClassNumGroup(prevAgg, aggInfo), maxMemoryEstimatePerInstance));
     }
+    ResourceProfile totalResource = ResourceProfile.noReservation(0);
     if (aggInfos_.size() == 1) {
-      nodeResourceProfile_ = resourceProfiles_.get(0);
+      totalResource = resourceProfiles_.get(0);
     } else {
-      nodeResourceProfile_ = ResourceProfile.noReservation(0);
       for (ResourceProfile aggProfile : resourceProfiles_) {
-        nodeResourceProfile_ = nodeResourceProfile_.sum(aggProfile);
+        totalResource = totalResource.sum(aggProfile);
       }
+    }
+
+    if (aggInfos_.size() > 1 && biasToSpill) {
+      // Total mem estimate might still exceed maxMemoryEstimatePerInstance.
+      // Do another capping over the sum ResourceProfile, but maintain total mem estimate
+      // higher than total min mem reservation.
+      ResourceProfileBuilder builder =
+          new ResourceProfileBuilder()
+              .setMemEstimateBytes(totalResource.getMemEstimateBytes())
+              .setMinMemReservationBytes(totalResource.getMinMemReservationBytes())
+              .setThreadReservation(totalResource.getThreadReservation())
+              .setMemEstimateScale(
+                  queryOptions.getMem_estimate_scale_for_spilling_operator(),
+                  maxMemoryEstimatePerInstance);
+      if (totalResource.getMaxMemReservationBytes() > 0) {
+        builder.setMaxMemReservationBytes(totalResource.getMaxMemReservationBytes());
+      }
+      nodeResourceProfile_ = builder.build();
+    } else {
+      nodeResourceProfile_ = totalResource;
     }
   }
 
@@ -923,8 +953,8 @@ public class AggregationNode extends PlanNode {
     return perInstanceDataBytes;
   }
 
-  private ResourceProfile computeAggClassResourceProfile(
-      TQueryOptions queryOptions, AggregateInfo aggInfo, long inputCardinality) {
+  private ResourceProfile computeAggClassResourceProfile(TQueryOptions queryOptions,
+      AggregateInfo aggInfo, long inputCardinality, long maxMemoryEstimatePerInstance) {
     Preconditions.checkNotNull(
         fragment_, "PlanNode must be placed into a fragment before calling this method.");
     long perInstanceCardinality =
@@ -1040,6 +1070,11 @@ public class AggregationNode extends PlanNode {
       // reservation, since the bulk of the memory is reserved.
       builder.setMemEstimateBytes(
           Math.min(perInstanceMemEstimate, maxReservationBytes));
+    }
+    if (shouldComputeResourcesWithSpill(queryOptions)) {
+      builder.setMemEstimateScale(
+          queryOptions.getMem_estimate_scale_for_spilling_operator(),
+          maxMemoryEstimatePerInstance);
     }
     return builder.build();
   }

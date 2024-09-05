@@ -22,12 +22,10 @@ import com.google.common.base.Preconditions;
 import org.apache.impala.common.ImpalaException;
 import org.apache.impala.common.InternalException;
 import org.apache.impala.common.JniUtil;
-import org.apache.impala.thrift.TErrorCode;
 import org.apache.impala.thrift.TPoolConfigParams;
 import org.apache.impala.thrift.TPoolConfig;
 import org.apache.impala.thrift.TResolveRequestPoolParams;
 import org.apache.impala.thrift.TResolveRequestPoolResult;
-import org.apache.impala.thrift.TStatus;
 
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
