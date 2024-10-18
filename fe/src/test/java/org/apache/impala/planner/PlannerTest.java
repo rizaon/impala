@@ -182,7 +182,10 @@ public class PlannerTest extends PlannerTestBase {
 
   @Test
   public void testAggregation() {
-    runPlannerTestFile("aggregation");
+    TQueryOptions options = defaultQueryOptions();
+    options.setDisable_hdfs_num_rows_estimate(true); // Needed for deterministic estimate.
+    runPlannerTestFile(
+        "aggregation", options, ImmutableSet.of(PlannerTestOption.VALIDATE_CARDINALITY));
   }
 
   @Test
