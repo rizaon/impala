@@ -76,12 +76,12 @@ PLAN-ROOT SINK
 |
 02:TOP-N [LIMIT=10]
 |  order by: avg(zip) ASC
-|  row-size=16B cardinality=0
+|  row-size=16B cardinality=1
 |
 01:AGGREGATE [FINALIZE]
 |  output: avg(id), count(id), avg(zip)
 |  having: count(id) > 0
-|  row-size=24B cardinality=0
+|  row-size=24B cardinality=1
 |
 00:SCAN HDFS [functional.testtbl]
    partitions=1/1 files=0 size=0B
@@ -91,18 +91,18 @@ PLAN-ROOT SINK
 |
 02:TOP-N [LIMIT=10]
 |  order by: avg(zip) ASC
-|  row-size=16B cardinality=0
+|  row-size=16B cardinality=1
 |
 04:AGGREGATE [FINALIZE]
 |  output: avg:merge(id), count:merge(id), avg:merge(zip)
 |  having: count(id) > 0
-|  row-size=24B cardinality=0
+|  row-size=24B cardinality=1
 |
 03:EXCHANGE [UNPARTITIONED]
 |
 01:AGGREGATE
 |  output: avg(id), count(id), avg(zip)
-|  row-size=24B cardinality=0
+|  row-size=24B cardinality=1
 |
 00:SCAN HDFS [functional.testtbl]
    partitions=1/1 files=0 size=0B
@@ -913,7 +913,7 @@ PLAN-ROOT SINK
 01:AGGREGATE [FINALIZE]
 |  group by: tinyint_col, smallint_col, int_col + int_col, coalesce(bigint_col, `year`)
 |  having: int_col + int_col = coalesce(bigint_col, `year`), smallint_col = int_col + int_col
-|  row-size=19B cardinality=730
+|  row-size=19B cardinality=73
 |
 00:SCAN HDFS [functional.alltypes]
    partitions=24/24 files=24 size=478.45KB
@@ -1299,7 +1299,7 @@ PLAN-ROOT SINK
 01:AGGREGATE [FINALIZE]
 |  output: count(*)
 |  having: count(*) > 0
-|  row-size=8B cardinality=0
+|  row-size=8B cardinality=1
 |
 00:SCAN HDFS [functional.alltypestiny]
    partitions=4/4 files=4 size=460B
@@ -1325,7 +1325,7 @@ PLAN-ROOT SINK
 |  group by: c_custkey
 |  having: count(*) < 150000
 |  limit: 1000000
-|  row-size=16B cardinality=15.00K
+|  row-size=16B cardinality=9.15K
 |
 02:HASH JOIN [INNER JOIN, PARTITIONED]
 |  hash predicates: c_custkey = o_custkey
@@ -1361,13 +1361,13 @@ PLAN-ROOT SINK
 |  output: count:merge(c_custkey)
 |  having: count(c_custkey) > 50
 |  limit: 50
-|  row-size=8B cardinality=0
+|  row-size=8B cardinality=1
 |
 07:EXCHANGE [UNPARTITIONED]
 |
 04:AGGREGATE
 |  output: count(c_custkey)
-|  row-size=8B cardinality=0
+|  row-size=8B cardinality=1
 |
 03:AGGREGATE
 |  group by: c_custkey
@@ -1416,7 +1416,7 @@ PLAN-ROOT SINK
 |
 03:AGGREGATE
 |  group by: c_custkey, c_custkey
-|  row-size=16B cardinality=1.50M
+|  row-size=16B cardinality=150.00K
 |
 02:HASH JOIN [INNER JOIN, PARTITIONED]
 |  hash predicates: o_custkey = c_custkey
@@ -1666,7 +1666,7 @@ PLAN-ROOT SINK
 01:AGGREGATE [FINALIZE]
 |  output: count(*)
 |  group by: 3, id
-|  row-size=18B cardinality=10
+|  row-size=17B cardinality=10
 |
 00:SCAN HDFS [functional.dimtbl]
    HDFS partitions=1/1 files=1 size=171B
@@ -1692,4 +1692,449 @@ PLAN-ROOT SINK
    partition predicates: ss_sold_date_sk > 245263
    HDFS partitions=1823/1824 files=1823 size=195.68MB
    row-size=16B cardinality=2.75M
+====
+# Aggregation across nested views. The NDV of aggregation columns are following:
+# ss_item_sk = 17975
+# ss_customer_sk = 90632
+# d_month_seq = 2421
+# numRows(store_sales) = 2880404 & numRows(date_dim) = 73049
+with v1 as (
+     select ss_item_sk, ss_customer_sk, d_month_seq, count(*)
+     from tpcds.store_sales ss
+     inner join tpcds.date_dim dd on ss.ss_sold_date_sk = dd.d_date_sk
+     group by ss_item_sk, ss_customer_sk, d_month_seq),
+   v2 as (
+     select ss_item_sk, ss_customer_sk, count(*)
+     from v1 group by ss_item_sk, ss_customer_sk)
+select ss_item_sk, count(*) from v2 group by ss_item_sk;
+---- PLAN
+PLAN-ROOT SINK
+|
+05:AGGREGATE [FINALIZE]
+|  output: count(*)
+|  group by: ss_item_sk
+|  row-size=16B cardinality=17.98K
+|
+04:AGGREGATE [FINALIZE]
+|  group by: ss_item_sk, ss_customer_sk
+|  row-size=12B cardinality=2.88M
+|
+03:AGGREGATE [FINALIZE]
+|  group by: ss_item_sk, ss_customer_sk, d_month_seq
+|  row-size=16B cardinality=2.88M
+|
+02:HASH JOIN [INNER JOIN]
+|  hash predicates: ss.ss_sold_date_sk = dd.d_date_sk
+|  runtime filters: RF000 <- dd.d_date_sk
+|  row-size=24B cardinality=2.88M
+|
+|--01:SCAN HDFS [tpcds.date_dim dd]
+|     HDFS partitions=1/1 files=1 size=9.84MB
+|     row-size=8B cardinality=73.05K
+|
+00:SCAN HDFS [tpcds.store_sales ss]
+   HDFS partitions=1824/1824 files=1824 size=346.60MB
+   runtime filters: RF000 -> ss.ss_sold_date_sk
+   row-size=16B cardinality=2.88M
+---- PARALLELPLANS
+PLAN-ROOT SINK
+|
+13:EXCHANGE [UNPARTITIONED]
+|
+12:AGGREGATE [FINALIZE]
+|  output: count:merge(*)
+|  group by: ss_item_sk
+|  row-size=16B cardinality=17.98K
+|
+11:EXCHANGE [HASH(ss_item_sk)]
+|
+05:AGGREGATE [STREAMING]
+|  output: count(*)
+|  group by: ss_item_sk
+|  row-size=16B cardinality=17.98K
+|
+10:AGGREGATE [FINALIZE]
+|  group by: ss_item_sk, ss_customer_sk
+|  row-size=12B cardinality=2.88M
+|
+09:EXCHANGE [HASH(ss_item_sk,ss_customer_sk)]
+|
+04:AGGREGATE [STREAMING]
+|  group by: ss_item_sk, ss_customer_sk
+|  row-size=12B cardinality=2.88M
+|
+08:AGGREGATE [FINALIZE]
+|  group by: ss_item_sk, ss_customer_sk, d_month_seq
+|  row-size=16B cardinality=2.88M
+|
+07:EXCHANGE [HASH(ss_item_sk,ss_customer_sk,d_month_seq)]
+|
+03:AGGREGATE [STREAMING]
+|  group by: ss_item_sk, ss_customer_sk, d_month_seq
+|  row-size=16B cardinality=2.88M
+|
+02:HASH JOIN [INNER JOIN, BROADCAST]
+|  hash predicates: ss.ss_sold_date_sk = dd.d_date_sk
+|  row-size=24B cardinality=2.88M
+|
+|--JOIN BUILD
+|  |  join-table-id=00 plan-id=01 cohort-id=01
+|  |  build expressions: dd.d_date_sk
+|  |  runtime filters: RF000 <- dd.d_date_sk
+|  |
+|  06:EXCHANGE [BROADCAST]
+|  |
+|  01:SCAN HDFS [tpcds.date_dim dd]
+|     HDFS partitions=1/1 files=1 size=9.84MB
+|     row-size=8B cardinality=73.05K
+|
+00:SCAN HDFS [tpcds.store_sales ss]
+   HDFS partitions=1824/1824 files=1824 size=346.60MB
+   runtime filters: RF000 -> ss.ss_sold_date_sk
+   row-size=16B cardinality=2.88M
+====
+# Aggregation across nested views where the grouping columns do not change.
+# The NDV of aggregation columns are following:
+# c_nationkey = 25
+# c_custkey = 150000
+with v1 as (
+     select c_nationkey, c_custkey, count(*)
+     from tpch.customer
+     group by c_nationkey, c_custkey),
+   v2 as (
+     select c_nationkey, c_custkey, count(*)
+     from v1, tpch.orders
+     where c_custkey = o_custkey
+     group by c_nationkey, c_custkey)
+select c_nationkey, count(*) from v2 group by c_nationkey;
+---- PLAN
+PLAN-ROOT SINK
+|
+05:AGGREGATE [FINALIZE]
+|  output: count(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+04:AGGREGATE [FINALIZE]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=150.00K
+|
+03:HASH JOIN [INNER JOIN]
+|  hash predicates: o_custkey = c_custkey
+|  runtime filters: RF000 <- c_custkey
+|  row-size=18B cardinality=1.50M
+|
+|--01:AGGREGATE [FINALIZE]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=150.00K
+|  |
+|  00:SCAN HDFS [tpch.customer]
+|     HDFS partitions=1/1 files=1 size=23.08MB
+|     row-size=10B cardinality=150.00K
+|
+02:SCAN HDFS [tpch.orders]
+   HDFS partitions=1/1 files=1 size=162.56MB
+   runtime filters: RF000 -> o_custkey
+   row-size=8B cardinality=1.50M
+---- PARALLELPLANS
+PLAN-ROOT SINK
+|
+13:EXCHANGE [UNPARTITIONED]
+|
+12:AGGREGATE [FINALIZE]
+|  output: count:merge(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+11:EXCHANGE [HASH(c_nationkey)]
+|
+05:AGGREGATE [STREAMING]
+|  output: count(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+10:AGGREGATE [FINALIZE]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=150.00K
+|
+09:EXCHANGE [HASH(c_nationkey,c_custkey)]
+|
+04:AGGREGATE [STREAMING]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=150.00K
+|
+03:HASH JOIN [INNER JOIN, BROADCAST]
+|  hash predicates: o_custkey = c_custkey
+|  row-size=18B cardinality=1.50M
+|
+|--JOIN BUILD
+|  |  join-table-id=00 plan-id=01 cohort-id=01
+|  |  build expressions: c_custkey
+|  |  runtime filters: RF000 <- c_custkey
+|  |
+|  08:EXCHANGE [BROADCAST]
+|  |
+|  07:AGGREGATE [FINALIZE]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=150.00K
+|  |
+|  06:EXCHANGE [HASH(c_nationkey,c_custkey)]
+|  |
+|  01:AGGREGATE [STREAMING]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=150.00K
+|  |
+|  00:SCAN HDFS [tpch.customer]
+|     HDFS partitions=1/1 files=1 size=23.08MB
+|     row-size=10B cardinality=150.00K
+|
+02:SCAN HDFS [tpch.orders]
+   HDFS partitions=1/1 files=1 size=162.56MB
+   runtime filters: RF000 -> o_custkey
+   row-size=8B cardinality=1.50M
+====
+# Aggregation across nested views where the grouping columns do not change,
+# and there is a UnionNode in plan tree.
+# The NDV of aggregation columns are following:
+# c_nationkey = 25
+# c_custkey = 150000
+with v0 as (
+      select * from tpch.customer
+      union all
+      select * from tpch.customer
+    ),
+    v1 as (
+     select c_nationkey, c_custkey, count(*)
+     from v0
+     group by c_nationkey, c_custkey),
+   v2 as (
+     select c_nationkey, c_custkey, count(*)
+     from v1, tpch.orders
+     where c_custkey = o_custkey
+     group by c_nationkey, c_custkey)
+select c_nationkey, count(*) from v2 group by c_nationkey;
+---- PLAN
+PLAN-ROOT SINK
+|
+07:AGGREGATE [FINALIZE]
+|  output: count(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+06:AGGREGATE [FINALIZE]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=300.00K
+|
+05:HASH JOIN [INNER JOIN]
+|  hash predicates: o_custkey = c_custkey
+|  runtime filters: RF000 <- c_custkey
+|  row-size=18B cardinality=3.00M
+|
+|--03:AGGREGATE [FINALIZE]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=300.00K
+|  |
+|  00:UNION
+|  |  pass-through-operands: all
+|  |  row-size=10B cardinality=300.00K
+|  |
+|  |--02:SCAN HDFS [tpch.customer]
+|  |     HDFS partitions=1/1 files=1 size=23.08MB
+|  |     row-size=10B cardinality=150.00K
+|  |
+|  01:SCAN HDFS [tpch.customer]
+|     HDFS partitions=1/1 files=1 size=23.08MB
+|     row-size=10B cardinality=150.00K
+|
+04:SCAN HDFS [tpch.orders]
+   HDFS partitions=1/1 files=1 size=162.56MB
+   runtime filters: RF000 -> o_custkey
+   row-size=8B cardinality=1.50M
+---- PARALLELPLANS
+PLAN-ROOT SINK
+|
+15:EXCHANGE [UNPARTITIONED]
+|
+14:AGGREGATE [FINALIZE]
+|  output: count:merge(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+13:EXCHANGE [HASH(c_nationkey)]
+|
+07:AGGREGATE [STREAMING]
+|  output: count(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+12:AGGREGATE [FINALIZE]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=300.00K
+|
+11:EXCHANGE [HASH(c_nationkey,c_custkey)]
+|
+06:AGGREGATE [STREAMING]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=300.00K
+|
+05:HASH JOIN [INNER JOIN, BROADCAST]
+|  hash predicates: o_custkey = c_custkey
+|  row-size=18B cardinality=3.00M
+|
+|--JOIN BUILD
+|  |  join-table-id=00 plan-id=01 cohort-id=01
+|  |  build expressions: c_custkey
+|  |  runtime filters: RF000 <- c_custkey
+|  |
+|  10:EXCHANGE [BROADCAST]
+|  |
+|  09:AGGREGATE [FINALIZE]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=300.00K
+|  |
+|  08:EXCHANGE [HASH(c_nationkey,c_custkey)]
+|  |
+|  03:AGGREGATE [STREAMING]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=300.00K
+|  |
+|  00:UNION
+|  |  pass-through-operands: all
+|  |  row-size=10B cardinality=300.00K
+|  |
+|  |--02:SCAN HDFS [tpch.customer]
+|  |     HDFS partitions=1/1 files=1 size=23.08MB
+|  |     row-size=10B cardinality=150.00K
+|  |
+|  01:SCAN HDFS [tpch.customer]
+|     HDFS partitions=1/1 files=1 size=23.08MB
+|     row-size=10B cardinality=150.00K
+|
+04:SCAN HDFS [tpch.orders]
+   HDFS partitions=1/1 files=1 size=162.56MB
+   runtime filters: RF000 -> o_custkey
+   row-size=8B cardinality=1.50M
+====
+# Aggregation across nested views where the grouping columns do not change,
+# and there is a UnionNode with limit in plan tree.
+# The NDV of aggregation columns are following:
+# c_nationkey = 25
+# c_custkey = 150000
+with v0 as (
+      select * from (
+        select * from tpch.customer
+        union all
+        select * from tpch.customer
+      ) u limit 100
+    ),
+    v1 as (
+     select c_nationkey, c_custkey, count(*)
+     from v0
+     group by c_nationkey, c_custkey),
+   v2 as (
+     select c_nationkey, c_custkey, count(*)
+     from v1, tpch.orders
+     where c_custkey = o_custkey
+     group by c_nationkey, c_custkey)
+select c_nationkey, count(*) from v2 group by c_nationkey;
+---- PLAN
+PLAN-ROOT SINK
+|
+07:AGGREGATE [FINALIZE]
+|  output: count(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+06:AGGREGATE [FINALIZE]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=100
+|
+05:HASH JOIN [INNER JOIN]
+|  hash predicates: o_custkey = c_custkey
+|  runtime filters: RF000 <- c_custkey
+|  row-size=18B cardinality=1.52K
+|
+|--03:AGGREGATE [FINALIZE]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=100
+|  |
+|  00:UNION
+|  |  pass-through-operands: all
+|  |  limit: 100
+|  |  row-size=10B cardinality=100
+|  |
+|  |--02:SCAN HDFS [tpch.customer]
+|  |     HDFS partitions=1/1 files=1 size=23.08MB
+|  |     row-size=10B cardinality=150.00K
+|  |
+|  01:SCAN HDFS [tpch.customer]
+|     HDFS partitions=1/1 files=1 size=23.08MB
+|     row-size=10B cardinality=150.00K
+|
+04:SCAN HDFS [tpch.orders]
+   HDFS partitions=1/1 files=1 size=162.56MB
+   runtime filters: RF000 -> o_custkey
+   row-size=8B cardinality=1.50M
+---- PARALLELPLANS
+PLAN-ROOT SINK
+|
+14:EXCHANGE [UNPARTITIONED]
+|
+13:AGGREGATE [FINALIZE]
+|  output: count:merge(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+12:EXCHANGE [HASH(c_nationkey)]
+|
+07:AGGREGATE [STREAMING]
+|  output: count(*)
+|  group by: c_nationkey
+|  row-size=10B cardinality=25
+|
+11:AGGREGATE [FINALIZE]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=100
+|
+10:EXCHANGE [HASH(c_nationkey,c_custkey)]
+|
+06:AGGREGATE [STREAMING]
+|  group by: c_nationkey, c_custkey
+|  row-size=10B cardinality=100
+|
+05:HASH JOIN [INNER JOIN, BROADCAST]
+|  hash predicates: o_custkey = c_custkey
+|  row-size=18B cardinality=1.52K
+|
+|--JOIN BUILD
+|  |  join-table-id=00 plan-id=01 cohort-id=01
+|  |  build expressions: c_custkey
+|  |  runtime filters: RF000 <- c_custkey
+|  |
+|  09:EXCHANGE [BROADCAST]
+|  |
+|  03:AGGREGATE [FINALIZE]
+|  |  group by: c_nationkey, c_custkey
+|  |  row-size=10B cardinality=100
+|  |
+|  08:EXCHANGE [UNPARTITIONED]
+|  |  limit: 100
+|  |
+|  00:UNION
+|  |  pass-through-operands: all
+|  |  limit: 100
+|  |  row-size=10B cardinality=100
+|  |
+|  |--02:SCAN HDFS [tpch.customer]
+|  |     HDFS partitions=1/1 files=1 size=23.08MB
+|  |     row-size=10B cardinality=150.00K
+|  |
+|  01:SCAN HDFS [tpch.customer]
+|     HDFS partitions=1/1 files=1 size=23.08MB
+|     row-size=10B cardinality=150.00K
+|
+04:SCAN HDFS [tpch.orders]
+   HDFS partitions=1/1 files=1 size=162.56MB
+   runtime filters: RF000 -> o_custkey
+   row-size=8B cardinality=1.50M
 ====
