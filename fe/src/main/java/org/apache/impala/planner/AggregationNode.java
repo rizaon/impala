@@ -275,8 +275,8 @@ public class AggregationNode extends PlanNode {
         // a preaggregation node with N instances, actual number can be as high as
         // N * numGroups. But N is unknown until later phase of planning. Preaggregation
         // node can also stream rows, which will produce more rows than N * numGroups.
-        numGroups =
-            estimateNumGroups(aggInfo.getGroupingExprs(), aggInputCardinality_, this);
+        numGroups = estimateNumGroups(
+            aggInfo.getGroupingExprs(), aggInputCardinality_, this, analyzer);
       }
       Preconditions.checkState(numGroups >= -1, numGroups);
 
@@ -331,21 +331,21 @@ public class AggregationNode extends PlanNode {
 
       if (slotRef != null && slotRef.getDesc() != null) {
         SlotDescriptor sd = slotRef.getDesc();
-        LOG.trace("Tracing Slot={}", slotRef);
 
         if (sd.getParent() != null && sd.getType().isScalarType()
             && (sd.getColumn() != null)) {
-          // This is a simple column slot.
+          LOG.trace("Tracing Slot={}, a simple column slot", slotRef);
           return sd.getParent();
         } else if (sd.getParent() != null && sd.getParent().getSourceView() != null) {
-          // This is a view slot.
+          LOG.trace("Tracing Slot={}, a view slot", slotRef);
           exprToFind = sd.getParent().getSourceView().getBaseTblSmap().get(slotRef);
         } else if (sd.getSourceExprs().size() == 1) {
-          // This is an intermediate slot with single source expression.
+          LOG.trace("Tracing Slot={}, an intermediate slot with single source", slotRef);
           exprToFind = sd.getSourceExprs().get(0);
         } else if (sd.getSourceExprs().size() > 1 && sd.getParent() != null
             && sd.getType().isScalarType()) {
-          // This is an intermediate slot with multiple source expression (UnionNode).
+          LOG.trace("Tracing Slot={}, an intermediate slot with {} sources", slotRef,
+              sd.getSourceExprs().size());
           return sd.getParent();
         } else {
           exprToFind = null;
@@ -376,8 +376,8 @@ public class AggregationNode extends PlanNode {
    * expressions and input cardinality.
    * Returns -1 if a reasonable cardinality estimate cannot be produced.
    */
-  public static long estimateNumGroups(
-      List<Expr> groupingExprs, long aggInputCardinality, PlanNode planNode) {
+  public static long estimateNumGroups(List<Expr> groupingExprs, long aggInputCardinality,
+      PlanNode planNode, Analyzer analyzer) {
     Preconditions.checkArgument(aggInputCardinality >= -1, aggInputCardinality);
     if (groupingExprs.isEmpty()) { return NON_GROUPING_AGG_NUM_GROUPS; }
 
@@ -399,12 +399,11 @@ public class AggregationNode extends PlanNode {
         tupleDescToExprs.get(tupleDesc).add(expr);
         LOG.trace("Slot {} match with tuple {}", expr, tupleDesc.getId());
       } else {
-        // expr is not a simple column SlotRef.
+        // expr is not a simple SlotRef.
         exprsWithUniqueTupleId.add(expr);
       }
     }
 
-    boolean doneTraversal = false;
     List<Long> tupleBasedNumGroups = new ArrayList<>();
     if (tupleDescToExprs.isEmpty()) {
       Preconditions.checkState(exprsWithUniqueTupleId.size() == groupingExprs.size(),
@@ -413,34 +412,13 @@ public class AggregationNode extends PlanNode {
     } else {
       // Find cardinality of tuple that referenced by multiple expressions.
       // Search the first PlanNode that materialize a specific tupleId.
-      // This is done by visiting all children ScanNodes or UnionNodes below planNode
-      // in post order fashion.
-      final Map<TupleId, PlanNode> producerNodes = new HashMap<>();
+      // This is done via memo lookup through analyzer.getProducingNode().
       for (Map.Entry<TupleDescriptor, List<Expr>> entry : tupleDescToExprs.entrySet()) {
-        List<Expr> exprs = entry.getValue();
-        if (exprs.size() <= 1) {
-          // Move single expression to exprsWithUniqueTupleId.
-          exprsWithUniqueTupleId.addAll(exprs);
-          continue;
-        }
-
-        // Lazy load producerNodes map.
-        if (!doneTraversal) {
-          LOG.trace("Do tuple-based reduction for {}:AGGREGATE", planNode.getId());
-          planNode.postAccept(node -> {
-            if (node instanceof ScanNode || node instanceof UnionNode) {
-              PlanNode pNode = (PlanNode) node;
-              for (TupleId tupleId : pNode.tupleIds_)
-                producerNodes.putIfAbsent(tupleId, pNode);
-            }
-          });
-          doneTraversal = true;
-        }
-
-        PlanNode producerNode = producerNodes.get(entry.getKey().getId());
+        List<Expr> exprs = new ArrayList<>(entry.getValue());
+        PlanNode producerNode = analyzer.getProducingNode(entry.getKey().getId());
         if (producerNode == null) {
           // Move expressions with unknown PlanNode origin to exprsWithUniqueTupleId.
-          exprsWithUniqueTupleId.addAll(exprs);
+          exprsWithUniqueTupleId.addAll(entry.getValue());
         } else {
           Preconditions.checkNotNull(exprs, "exprs must not be null");
 
@@ -449,6 +427,7 @@ public class AggregationNode extends PlanNode {
           // is highly accurate (ie., histogram support from HIVE-26221).
           long producerCardinality = -1;
           long numGroupFromCommonTuple = -1;
+          long filteredNdv = 0;
           if (producerNode.hasHardEstimates_ || producerNode instanceof UnionNode) {
             // UnionNode cardinality is not impacted by its conjuncts_.
             producerCardinality = producerNode.getCardinality();
@@ -456,12 +435,24 @@ public class AggregationNode extends PlanNode {
             // It is cheap to still account for limit.
             producerCardinality =
                 producerNode.capCardinalityAtLimit(producerNode.getInputCardinality());
+
+            // Check if we can find constant NDV predicates from previous computation in
+            // HdfsScanNode.computeStatsTupleAndConjuncts().
+            if (producerNode instanceof HdfsScanNode) {
+              filteredNdv = ((HdfsScanNode) producerNode)
+                                .filterExprWithStatsConjunct(entry.getKey(), exprs);
+            }
           }
 
           // Pick the minimum between NDV multiple of the expressions vs max
           // cardinality of tuple.
-          Preconditions.checkState(!exprs.isEmpty(), "exprs must not be empty");
-          long ndvBasedNumGroup = estimateNumGroups(exprs, aggInputCardinality);
+          long ndvBasedNumGroup = 1;
+          if (!exprs.isEmpty()) {
+            ndvBasedNumGroup = estimateNumGroups(exprs, aggInputCardinality);
+          }
+          if (ndvBasedNumGroup > -1 && filteredNdv > 0) {
+            ndvBasedNumGroup = MathUtil.saturatingMultiply(ndvBasedNumGroup, filteredNdv);
+          }
           if (producerCardinality > -1) {
             if (ndvBasedNumGroup > -1) {
               numGroupFromCommonTuple = Math.min(producerCardinality, ndvBasedNumGroup);
@@ -475,16 +466,12 @@ public class AggregationNode extends PlanNode {
           if (numGroupFromCommonTuple < 0) {
             // Can not reason about tuple cardinality.
             // Move all exprs to exprsWithUniqueTupleId.
-            exprsWithUniqueTupleId.addAll(exprs);
+            exprsWithUniqueTupleId.addAll(entry.getValue());
           } else {
             tupleBasedNumGroups.add(numGroupFromCommonTuple);
           }
         }
       }
-    }
-
-    if (!doneTraversal) {
-      LOG.trace("No tuple-based reduction for {}:AGGREGATE", planNode.getId());
     }
 
     long numGroups = 1;
