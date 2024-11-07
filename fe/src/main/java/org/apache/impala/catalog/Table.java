@@ -220,7 +220,7 @@ public abstract class Table extends CatalogObjectImpl implements FeTable {
   protected SideloadTableStats testStats_ = null;
 
   // Scale factor to multiply table stats with. Only used for testing.
-  protected double testMetadataScale_ = 1.0;
+  protected double testMetadataScale_ = -1.0;
 
   protected Table(org.apache.hadoop.hive.metastore.api.Table msTable, Db db,
       String name, String owner) {
