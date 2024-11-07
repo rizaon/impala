@@ -34,8 +34,12 @@ PATH_TO_REPLACE = {
     "agg-node-high-mem-estimate.test",
     "agg-node-low-mem-estimate.test",
     "agg-node-max-mem-estimate.test",
+    "analytic-fns.test",
+    "card-agg.test",
     "processing-cost-plan-admission-slots.test",
+    "resource-requirements.test",
     "tpcds-processing-cost.test",
+    "tpch-nested.test"
   ]
 }
 
@@ -65,7 +69,17 @@ FIXED_STATS = {
     ("web_returns", "71.76K", "5.66MB"),
     ("web_sales", "719.38K", "45.09MB"),
     ("web_site", "30", "11.91KB")
-  ]
+  ],
+  "tpch_nested_parquet" : [
+    ("customer", "150.00K", "289.07MB"),
+    ("region", "5", "3.58KB")
+  ],
+  "tpch_parquet" : [
+    ("lineitem", "6.00M", "193.99MB")
+  ],
+  "tpch_orc_def" : [
+    ("lineitem", "6.00M", "142.84MB")
+  ],
 }
 FIXED_STATS["tpcds_partitioned_parquet_snap"] = FIXED_STATS["tpcds_parquet"]
 
@@ -74,9 +88,9 @@ for db, tables in FIXED_STATS.items():
   for (table, rows, bytes) in tables:
     TABLE_STATS["{}.{}".format(db, table)] = (rows, bytes)
 
-RE_SCAN = re.compile(r".*:SCAN.*\[([^,]+)(.*)\]")
-RE_PARTITION = re.compile(r"(.*) partitions=(\d+)/(\d+) files=(\d+) size=(.*)")
-RE_HMS_STATS = re.compile(r"(.*) table: rows=(.*) size=(.*)")
+RE_SCAN = re.compile(r".*:SCAN.*\[([_a-z]+).([_a-z]+)(.*)\]")
+RE_PARTITION = re.compile(r"(.*) partitions=(\d+)/(\d+) files=(\d+) size=(\d.*)")
+RE_HMS_STATS = re.compile(r"(.*) table: rows=(.*) size=(\d.*)")
 
 test_files = list()
 for path_to_check, files_to_check in PATH_TO_REPLACE.items():
@@ -98,8 +112,9 @@ for f in test_files:
     for line in lines:
       m = RE_SCAN.match(line)
       if m:
-        if m.group(1) in TABLE_STATS:
-          stats = TABLE_STATS[m.group(1)]
+        full_table = m.group(1) + "." + m.group(2)
+        if full_table in TABLE_STATS:
+          stats = TABLE_STATS[full_table]
           fd.write(line)
           continue
         else:

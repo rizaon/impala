@@ -258,7 +258,7 @@ Per-Host Resources: mem-estimate=61.94MB mem-reservation=29.44MB thread-reservat
 |
 24:EXCHANGE [HASH(CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(i_item_id) WHEN 11 THEN murmur_hash(i_item_id) WHEN 13 THEN murmur_hash(i_item_id) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_country) WHEN 9 THEN murmur_hash(ca_country) WHEN 11 THEN murmur_hash(ca_country) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_state) WHEN 9 THEN murmur_hash(ca_state) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_county) WHEN 9 THEN murmur_hash(NULL) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END)]
 |  mem-estimate=11.94MB mem-reservation=0B thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=75.61K
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=93.17K
 |  in pipelines: 00(GETNEXT)
 |
 F07:PLAN FRAGMENT [HASH(c_current_cdemo_sk)] hosts=3 instances=3
@@ -280,7 +280,7 @@ Per-Host Resources: mem-estimate=99.17MB mem-reservation=76.94MB thread-reservat
 |    output: avg(CAST(cs_quantity AS DECIMAL(12,2))), avg(CAST(cs_list_price AS DECIMAL(12,2))), avg(CAST(cs_coupon_amt AS DECIMAL(12,2))), avg(CAST(cs_sales_price AS DECIMAL(12,2))), avg(CAST(cs_net_profit AS DECIMAL(12,2))), avg(CAST(c_birth_year AS DECIMAL(12,2))), avg(CAST(cd1.cd_dep_count AS DECIMAL(12,2)))
 |    group by: NULL, NULL, NULL, NULL
 |  mem-estimate=50.00MB mem-reservation=38.00MB thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=75.61K
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=93.17K
 |  in pipelines: 00(GETNEXT)
 |
 12:HASH JOIN [INNER JOIN, BROADCAST]
@@ -523,7 +523,7 @@ Per-Instance Resources: mem-estimate=61.94MB mem-reservation=29.44MB thread-rese
 |
 24:EXCHANGE [HASH(CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(i_item_id) WHEN 11 THEN murmur_hash(i_item_id) WHEN 13 THEN murmur_hash(i_item_id) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_country) WHEN 9 THEN murmur_hash(ca_country) WHEN 11 THEN murmur_hash(ca_country) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_state) WHEN 9 THEN murmur_hash(ca_state) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_county) WHEN 9 THEN murmur_hash(NULL) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END)]
 |  mem-estimate=11.94MB mem-reservation=0B thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=75.61K
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=93.17K
 |  in pipelines: 00(GETNEXT)
 |
 F07:PLAN FRAGMENT [HASH(c_current_cdemo_sk)] hosts=3 instances=3
@@ -545,7 +545,7 @@ Per-Instance Resources: mem-estimate=59.98MB mem-reservation=38.00MB thread-rese
 |    output: avg(CAST(cs_quantity AS DECIMAL(12,2))), avg(CAST(cs_list_price AS DECIMAL(12,2))), avg(CAST(cs_coupon_amt AS DECIMAL(12,2))), avg(CAST(cs_sales_price AS DECIMAL(12,2))), avg(CAST(cs_net_profit AS DECIMAL(12,2))), avg(CAST(c_birth_year AS DECIMAL(12,2))), avg(CAST(cd1.cd_dep_count AS DECIMAL(12,2)))
 |    group by: NULL, NULL, NULL, NULL
 |  mem-estimate=50.00MB mem-reservation=38.00MB thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=75.61K
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=93.17K
 |  in pipelines: 00(GETNEXT)
 |
 12:HASH JOIN [INNER JOIN, BROADCAST]

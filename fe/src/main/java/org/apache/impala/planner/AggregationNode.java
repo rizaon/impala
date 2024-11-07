@@ -87,6 +87,9 @@ public class AggregationNode extends PlanNode {
   // If true, this node performs the finalize step.
   private boolean needsFinalize_ = false;
 
+  // If true, this is a preagg node. Set by setIsPreagg().
+  private boolean isPreagg_ = false;
+
   // If true, this node uses streaming preaggregation. Invalid if this is a merge agg.
   private boolean useStreamingPreagg_ = false;
 
@@ -159,9 +162,10 @@ public class AggregationNode extends PlanNode {
   }
 
   /**
-   * Sets this node as a preaggregation.
+   * Sets this node as a preaggregation. Must recompute stats if called.
    */
   public void setIsPreagg(PlannerContext ctx) {
+    isPreagg_ = true;
     if (ctx.getQueryOptions().disable_streaming_preaggregations) {
       useStreamingPreagg_ = false;
       return;
@@ -265,6 +269,11 @@ public class AggregationNode extends PlanNode {
           getId(), preaggNode.getId(), aggInfos_.size(), preaggNode.aggInfos_.size());
     }
 
+    // Assume there are at most 'minInstances' per node for consistency, because
+    // getNumInstances() might be changing in later phase of planning.
+    long minInstances = analyzer.getMinParallelismPerNode();
+    long minTotalInstances = MathUtil.saturatingMultiply(minInstances, getNumNodes());
+
     boolean unknownEstimate = false;
     aggClassNumGroups_ = Lists.newArrayList();
     int aggIdx = 0;
@@ -277,10 +286,6 @@ public class AggregationNode extends PlanNode {
         numGroups = estimateNumGroups(
             aggInfo.getGroupingExprs(), aggInputCardinality_, preaggNumgroup);
       } else {
-        // TODO: This numGroups is a global estimate accross all data. If this is
-        // a preaggregation node with N instances, actual number can be as high as
-        // N * numGroups. But N is unknown until later phase of planning. Preaggregation
-        // node can also stream rows, which will produce more rows than N * numGroups.
         numGroups = estimateNumGroups(
             aggInfo.getGroupingExprs(), aggInputCardinality_, this, analyzer);
       }
@@ -299,7 +304,13 @@ public class AggregationNode extends PlanNode {
         // conservative estimate.
         unknownEstimate = true;
       } else {
-        cardinality_ = checkedAdd(cardinality_, numGroups);
+        long aggOutputCard = numGroups;
+        if (isPreagg_ && numGroups > 0) {
+          // Account for duplicate keys on multiple nodes in a pre-aggregation.
+          aggOutputCard = estimatePreaggCardinality(minTotalInstances, numGroups,
+              aggInputCardinality_, aggInfo.getGroupingExprs().isEmpty());
+        }
+        cardinality_ = checkedAdd(cardinality_, aggOutputCard);
       }
       aggIdx++;
     }
@@ -314,12 +325,47 @@ public class AggregationNode extends PlanNode {
       cardinality_ = applyConjunctsSelectivity(cardinality_);
       cardAfterConjunct = cardinality_;
     }
+    // IMPALA-2581: preAgg node can have limit.
     cardinality_ = capCardinalityAtLimit(cardinality_);
+    long cardAfterLimit = cardinality_;
 
     if (LOG.isTraceEnabled()) {
-      LOG.trace("{} cardinality=[BeforeConjunct={} AfterConjunct={} AfterLimit={}]",
-          getDisplayLabel(), cardBeforeConjunct, cardAfterConjunct, cardinality_);
+      LOG.trace(
+          "{} cardinality=[BeforeConjunct={} AfterConjunct={} AfterLimit{} Final={}]",
+          getDisplayLabel(), cardBeforeConjunct, cardAfterConjunct, cardAfterLimit,
+          cardinality_);
     }
+  }
+
+  /**
+   * Account for duplicate keys on multiple nodes in a pre-aggregation.
+   * IMPALA-2945: Assuming uniform distribution, if 'k' is input cardinality of
+   * each AggNode instance, then number of distinct rows among 'k' is:
+   *    (1.0 - ((ndv - 1.0) / ndv) ^ k) * ndv
+   * Skip this estimation if inputCardinality is less than ndvEstimate because
+   * input rows are most likely unique already.
+   * If 'isNonGroupingAggregation' true, simply multiply ndvEstimate with
+   * minimum num instance.
+   */
+  private static long estimatePreaggCardinality(long totalInstances, long ndvEstimate,
+      long inputCardinality, boolean isNonGroupingAggregation) {
+    Preconditions.checkArgument(ndvEstimate > 0);
+    if (isNonGroupingAggregation) {
+      return MathUtil.saturatingMultiply(ndvEstimate, totalInstances);
+    } else if (inputCardinality > ndvEstimate) {
+      double k = Math.ceil((double) inputCardinality / totalInstances);
+      double ndv = (double) ndvEstimate;
+      double probExist = 1.0 - Math.pow((ndv - 1.0) / ndv, k);
+      double groupPerNode = Math.ceil(probExist * ndv);
+      long preaggCard =
+          MathUtil.saturatingMultiply(Math.round(groupPerNode), totalInstances);
+      // keep bounding at aggInputCardinality_ max.
+      preaggCard = lowerNumGroupsByInputCardinality(preaggCard, inputCardinality);
+      LOG.trace("k={} ndv={} prob={} groupPerNode={} cardinality={}", k, ndv, probExist,
+          groupPerNode, preaggCard);
+      return preaggCard;
+    }
+    return ndvEstimate;
   }
 
   /**
