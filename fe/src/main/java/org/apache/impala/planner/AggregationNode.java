@@ -213,6 +213,11 @@ public class AggregationNode extends PlanNode {
 
   @Override
   public void init(Analyzer analyzer) throws InternalException {
+    init(analyzer, null);
+  }
+
+  public void init(Analyzer analyzer, List<Expr> transferredConjuncts)
+      throws InternalException {
     Preconditions.checkState(tupleIds_.size() == aggInfos_.size());
     // Assign conjuncts to the top-most agg in the single-node plan. They are transferred
     // to the proper place in the distributed plan via transferConjuncts().
@@ -222,8 +227,9 @@ public class AggregationNode extends PlanNode {
       // reference a single aggregation class down into the aggregators of the
       // previous phase.
       conjuncts_.addAll(multiAggInfo_.collectConjuncts(analyzer, true));
-      conjuncts_ = orderConjunctsByCost(conjuncts_);
     }
+    if (transferredConjuncts != null) conjuncts_.addAll(transferredConjuncts);
+    conjuncts_ = orderConjunctsByCost(conjuncts_);
 
     // Compute the mem layout for both tuples here for simplicity.
     for (AggregateInfo aggInfo : aggInfos_) {
