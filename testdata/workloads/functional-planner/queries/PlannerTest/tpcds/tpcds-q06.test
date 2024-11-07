@@ -219,7 +219,7 @@ Per-Host Resources: mem-estimate=10.02MB mem-reservation=1.94MB thread-reservati
 |
 28:EXCHANGE [HASH(a.ca_state)]
 |  mem-estimate=16.00KB mem-reservation=0B thread-reservation=0
-|  tuple-ids=12 row-size=22B cardinality=51
+|  tuple-ids=12 row-size=22B cardinality=153
 |  in pipelines: 02(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=3 instances=3
@@ -228,7 +228,7 @@ Per-Host Resources: mem-estimate=70.86MB mem-reservation=29.06MB thread-reservat
 |  output: count(*)
 |  group by: a.ca_state
 |  mem-estimate=10.00MB mem-reservation=2.00MB spill-buffer=64.00KB thread-reservation=0
-|  tuple-ids=12 row-size=22B cardinality=51
+|  tuple-ids=12 row-size=22B cardinality=153
 |  in pipelines: 02(GETNEXT)
 |
 14:HASH JOIN [LEFT SEMI JOIN, BROADCAST]
@@ -480,8 +480,8 @@ Per-Instance Resources: mem-estimate=10.02MB mem-reservation=1.94MB thread-reser
 |  in pipelines: 29(GETNEXT), 02(OPEN)
 |
 28:EXCHANGE [HASH(a.ca_state)]
-|  mem-estimate=16.00KB mem-reservation=0B thread-reservation=0
-|  tuple-ids=12 row-size=22B cardinality=51
+|  mem-estimate=24.40KB mem-reservation=0B thread-reservation=0
+|  tuple-ids=12 row-size=22B cardinality=153
 |  in pipelines: 02(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=3 instances=6
@@ -491,7 +491,7 @@ Per-Instance Resources: mem-estimate=26.61MB mem-reservation=3.00MB thread-reser
 |  output: count(*)
 |  group by: a.ca_state
 |  mem-estimate=10.00MB mem-reservation=2.00MB spill-buffer=64.00KB thread-reservation=0
-|  tuple-ids=12 row-size=22B cardinality=51
+|  tuple-ids=12 row-size=22B cardinality=153
 |  in pipelines: 02(GETNEXT)
 |
 14:HASH JOIN [LEFT SEMI JOIN, BROADCAST]

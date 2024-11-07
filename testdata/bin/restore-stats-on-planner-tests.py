@@ -34,8 +34,12 @@ PATH_TO_REPLACE = {
     "agg-node-high-mem-estimate.test",
     "agg-node-low-mem-estimate.test",
     "agg-node-max-mem-estimate.test",
+    "analytic-fns.test",
+    "card-agg.test",
     "processing-cost-plan-admission-slots.test",
+    "resource-requirements.test",
     "tpcds-processing-cost.test",
+    "tpch-nested.test"
   ]
 }
 
@@ -65,7 +69,17 @@ FIXED_STATS = {
     ("web_returns", "71.76K", "5.66MB"),
     ("web_sales", "719.38K", "45.09MB"),
     ("web_site", "30", "11.91KB")
-  ]
+  ],
+  "tpch_nested_parquet": [
+    ("customer", "150.00K", "289.07MB"),
+    ("region", "5", "3.58KB")
+  ],
+  "tpch_parquet": [
+    ("lineitem", "6.00M", "193.99MB")
+  ],
+  "tpch_orc_def": [
+    ("lineitem", "6.00M", "142.84MB")
+  ],
 }
 FIXED_STATS["tpcds_partitioned_parquet_snap"] = FIXED_STATS["tpcds_parquet"]
 

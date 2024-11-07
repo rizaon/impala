@@ -255,7 +255,7 @@ Per-Host Resources: mem-estimate=10.02MB mem-reservation=1.94MB thread-reservati
 |
 23:EXCHANGE [HASH(s_store_name)]
 |  mem-estimate=16.00KB mem-reservation=0B thread-reservation=0
-|  tuple-ids=13 row-size=32B cardinality=8
+|  tuple-ids=13 row-size=32B cardinality=24
 |  in pipelines: 00(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=3 instances=3
@@ -264,7 +264,7 @@ Per-Host Resources: mem-estimate=51.24MB mem-reservation=11.81MB thread-reservat
 |  output: sum(ss_net_profit)
 |  group by: s_store_name
 |  mem-estimate=10.00MB mem-reservation=2.00MB spill-buffer=64.00KB thread-reservation=0
-|  tuple-ids=13 row-size=32B cardinality=8
+|  tuple-ids=13 row-size=32B cardinality=24
 |  in pipelines: 00(GETNEXT)
 |
 12:HASH JOIN [INNER JOIN, BROADCAST]
@@ -281,7 +281,7 @@ Per-Host Resources: mem-estimate=51.24MB mem-reservation=11.81MB thread-reservat
 |  |  in pipelines: 18(GETNEXT)
 |  |
 |  F04:PLAN FRAGMENT [HASH(substring(ca_zip, 1, 5))] hosts=1 instances=1
-|  Per-Host Resources: mem-estimate=22.00MB mem-reservation=5.81MB thread-reservation=1
+|  Per-Host Resources: mem-estimate=21.99MB mem-reservation=5.81MB thread-reservation=1
 |  09:HASH JOIN [LEFT SEMI JOIN, PARTITIONED]
 |  |  hash predicates: substring(ca_zip, 1, 5) IS NOT DISTINCT FROM substring(ca_zip, 1, 5)
 |  |  mem-estimate=1.94MB mem-reservation=1.94MB spill-buffer=64.00KB thread-reservation=0
@@ -352,12 +352,12 @@ Per-Host Resources: mem-estimate=51.24MB mem-reservation=11.81MB thread-reservat
 |  18:AGGREGATE [FINALIZE]
 |  |  group by: substring(ca_zip, 1, 5)
 |  |  mem-estimate=10.00MB mem-reservation=1.94MB spill-buffer=64.00KB thread-reservation=0
-|  |  tuple-ids=4 row-size=12B cardinality=3.96K
+|  |  tuple-ids=4 row-size=12B cardinality=2.84K
 |  |  in pipelines: 18(GETNEXT), 03(OPEN)
 |  |
 |  17:EXCHANGE [HASH(substring(ca_zip, 1, 5))]
-|  |  mem-estimate=62.42KB mem-reservation=0B thread-reservation=0
-|  |  tuple-ids=4 row-size=12B cardinality=3.96K
+|  |  mem-estimate=49.29KB mem-reservation=0B thread-reservation=0
+|  |  tuple-ids=4 row-size=12B cardinality=2.84K
 |  |  in pipelines: 03(GETNEXT)
 |  |
 |  F03:PLAN FRAGMENT [RANDOM] hosts=1 instances=1
@@ -365,7 +365,7 @@ Per-Host Resources: mem-estimate=51.24MB mem-reservation=11.81MB thread-reservat
 |  04:AGGREGATE [STREAMING]
 |  |  group by: substring(ca_zip, CAST(1 AS BIGINT), CAST(5 AS BIGINT))
 |  |  mem-estimate=10.00MB mem-reservation=2.00MB spill-buffer=64.00KB thread-reservation=0
-|  |  tuple-ids=4 row-size=12B cardinality=3.96K
+|  |  tuple-ids=4 row-size=12B cardinality=2.84K
 |  |  in pipelines: 03(GETNEXT)
 |  |
 |  03:SCAN HDFS [tpcds_parquet.customer_address, RANDOM]
@@ -478,7 +478,7 @@ Per-Instance Resources: mem-estimate=10.02MB mem-reservation=1.94MB thread-reser
 |
 23:EXCHANGE [HASH(s_store_name)]
 |  mem-estimate=16.00KB mem-reservation=0B thread-reservation=0
-|  tuple-ids=13 row-size=32B cardinality=8
+|  tuple-ids=13 row-size=32B cardinality=24
 |  in pipelines: 00(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=3 instances=6
@@ -488,7 +488,7 @@ Per-Instance Resources: mem-estimate=26.85MB mem-reservation=3.00MB thread-reser
 |  output: sum(ss_net_profit)
 |  group by: s_store_name
 |  mem-estimate=10.00MB mem-reservation=2.00MB spill-buffer=64.00KB thread-reservation=0
-|  tuple-ids=13 row-size=32B cardinality=8
+|  tuple-ids=13 row-size=32B cardinality=24
 |  in pipelines: 00(GETNEXT)
 |
 12:HASH JOIN [INNER JOIN, BROADCAST]
@@ -601,12 +601,12 @@ Per-Instance Resources: mem-estimate=26.85MB mem-reservation=3.00MB thread-reser
 |  18:AGGREGATE [FINALIZE]
 |  |  group by: substring(ca_zip, 1, 5)
 |  |  mem-estimate=10.00MB mem-reservation=1.94MB spill-buffer=64.00KB thread-reservation=0
-|  |  tuple-ids=4 row-size=12B cardinality=3.96K
+|  |  tuple-ids=4 row-size=12B cardinality=2.84K
 |  |  in pipelines: 18(GETNEXT), 03(OPEN)
 |  |
 |  17:EXCHANGE [HASH(substring(ca_zip, 1, 5))]
-|  |  mem-estimate=62.42KB mem-reservation=0B thread-reservation=0
-|  |  tuple-ids=4 row-size=12B cardinality=3.96K
+|  |  mem-estimate=49.29KB mem-reservation=0B thread-reservation=0
+|  |  tuple-ids=4 row-size=12B cardinality=2.84K
 |  |  in pipelines: 03(GETNEXT)
 |  |
 |  F03:PLAN FRAGMENT [RANDOM] hosts=1 instances=1
@@ -614,7 +614,7 @@ Per-Instance Resources: mem-estimate=26.85MB mem-reservation=3.00MB thread-reser
 |  04:AGGREGATE [STREAMING]
 |  |  group by: substring(ca_zip, CAST(1 AS BIGINT), CAST(5 AS BIGINT))
 |  |  mem-estimate=10.00MB mem-reservation=2.00MB spill-buffer=64.00KB thread-reservation=0
-|  |  tuple-ids=4 row-size=12B cardinality=3.96K
+|  |  tuple-ids=4 row-size=12B cardinality=2.84K
 |  |  in pipelines: 03(GETNEXT)
 |  |
 |  03:SCAN HDFS [tpcds_parquet.customer_address, RANDOM]

@@ -193,8 +193,8 @@ Per-Host Resources: mem-estimate=40.00MB mem-reservation=7.75MB thread-reservati
 |  in pipelines: 17(GETNEXT), 00(OPEN)
 |
 16:EXCHANGE [HASH(CASE valid_tid(5,7,9) WHEN 5 THEN murmur_hash(i_item_id) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(NULL) END,CASE valid_tid(5,7,9) WHEN 5 THEN murmur_hash(s_state) WHEN 7 THEN murmur_hash(NULL) WHEN 9 THEN murmur_hash(NULL) END)]
-|  mem-estimate=1.76MB mem-reservation=0B thread-reservation=0
-|  tuple-ids=5N,7N,9N row-size=202B cardinality=17.71K
+|  mem-estimate=4.04MB mem-reservation=0B thread-reservation=0
+|  tuple-ids=5N,7N,9N row-size=202B cardinality=53.13K
 |  in pipelines: 00(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=3 instances=3
@@ -210,7 +210,7 @@ Per-Host Resources: mem-estimate=165.85MB mem-reservation=30.31MB thread-reserva
 |    output: avg(CAST(ss_quantity AS BIGINT)), avg(ss_list_price), avg(ss_coupon_amt), avg(ss_sales_price)
 |    group by: NULL, NULL
 |  mem-estimate=30.00MB mem-reservation=8.00MB thread-reservation=0
-|  tuple-ids=5N,7N,9N row-size=202B cardinality=17.71K
+|  tuple-ids=5N,7N,9N row-size=202B cardinality=53.13K
 |  in pipelines: 00(GETNEXT)
 |
 08:HASH JOIN [INNER JOIN, BROADCAST]
@@ -379,8 +379,8 @@ Per-Instance Resources: mem-estimate=40.00MB mem-reservation=7.75MB thread-reser
 |  in pipelines: 17(GETNEXT), 00(OPEN)
 |
 16:EXCHANGE [HASH(CASE valid_tid(5,7,9) WHEN 5 THEN murmur_hash(i_item_id) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(NULL) END,CASE valid_tid(5,7,9) WHEN 5 THEN murmur_hash(s_state) WHEN 7 THEN murmur_hash(NULL) WHEN 9 THEN murmur_hash(NULL) END)]
-|  mem-estimate=2.39MB mem-reservation=0B thread-reservation=0
-|  tuple-ids=5N,7N,9N row-size=202B cardinality=17.71K
+|  mem-estimate=4.67MB mem-reservation=0B thread-reservation=0
+|  tuple-ids=5N,7N,9N row-size=202B cardinality=53.13K
 |  in pipelines: 00(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=3 instances=6
@@ -397,7 +397,7 @@ Per-Instance Resources: mem-estimate=51.02MB mem-reservation=12.00MB thread-rese
 |    output: avg(CAST(ss_quantity AS BIGINT)), avg(ss_list_price), avg(ss_coupon_amt), avg(ss_sales_price)
 |    group by: NULL, NULL
 |  mem-estimate=30.00MB mem-reservation=8.00MB thread-reservation=0
-|  tuple-ids=5N,7N,9N row-size=202B cardinality=17.71K
+|  tuple-ids=5N,7N,9N row-size=202B cardinality=53.13K
 |  in pipelines: 00(GETNEXT)
 |
 08:HASH JOIN [INNER JOIN, BROADCAST]

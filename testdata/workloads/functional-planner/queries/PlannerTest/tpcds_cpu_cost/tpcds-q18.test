@@ -227,7 +227,7 @@ PLAN-ROOT SINK
 |
 F07:PLAN FRAGMENT [HASH(CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(i_item_id) WHEN 11 THEN murmur_hash(i_item_id) WHEN 13 THEN murmur_hash(i_item_id) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_country) WHEN 9 THEN murmur_hash(ca_country) WHEN 11 THEN murmur_hash(ca_country) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_state) WHEN 9 THEN murmur_hash(ca_state) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_county) WHEN 9 THEN murmur_hash(NULL) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END)] hosts=10 instances=20 (adjusted from 120)
 Per-Instance Resources: mem-estimate=329.72MB mem-reservation=120.94MB thread-reservation=1
-max-parallelism=20 segment-costs=[74421817, 49382686, 100828279, 303] cpu-comparison-result=105 [max(20 (self) vs 105 (sum children))]
+max-parallelism=20 segment-costs=[96223490, 49382686, 100828279, 303] cpu-comparison-result=105 [max(20 (self) vs 105 (sum children))]
 15:TOP-N [LIMIT=100]
 |  order by: CASE valid_tid(16,8,10,12,14) WHEN 8 THEN ca_country WHEN 10 THEN ca_country WHEN 12 THEN ca_country WHEN 14 THEN NULL WHEN 16 THEN NULL END ASC, CASE valid_tid(16,8,10,12,14) WHEN 8 THEN ca_state WHEN 10 THEN ca_state WHEN 12 THEN NULL WHEN 14 THEN NULL WHEN 16 THEN NULL END ASC, CASE valid_tid(16,8,10,12,14) WHEN 8 THEN ca_county WHEN 10 THEN NULL WHEN 12 THEN NULL WHEN 14 THEN NULL WHEN 16 THEN NULL END ASC, CASE valid_tid(16,8,10,12,14) WHEN 8 THEN i_item_id WHEN 10 THEN i_item_id WHEN 12 THEN i_item_id WHEN 14 THEN i_item_id WHEN 16 THEN NULL END ASC
 |  mem-estimate=10.16KB mem-reservation=0B thread-reservation=0
@@ -263,13 +263,13 @@ max-parallelism=20 segment-costs=[74421817, 49382686, 100828279, 303] cpu-compar
 |
 22:EXCHANGE [HASH(CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(i_item_id) WHEN 11 THEN murmur_hash(i_item_id) WHEN 13 THEN murmur_hash(i_item_id) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_country) WHEN 9 THEN murmur_hash(ca_country) WHEN 11 THEN murmur_hash(ca_country) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_state) WHEN 9 THEN murmur_hash(ca_state) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_county) WHEN 9 THEN murmur_hash(NULL) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END)]
 |  mem-estimate=68.09MB mem-reservation=0B thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=7.81M cost=25046116
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=14.61M cost=46847789
 |  in pipelines: 00(GETNEXT)
 |
 F00:PLAN FRAGMENT [RANDOM] hosts=10 instances=90 (adjusted from 120)
 Per-Host Shared Resources: mem-estimate=19.00MB mem-reservation=19.00MB thread-reservation=0 runtime-filters-memory=19.00MB
 Per-Instance Resources: mem-estimate=213.64MB mem-reservation=139.00MB thread-reservation=1
-max-parallelism=90 segment-costs=[801276522, 342521141] cpu-comparison-result=105 [max(90 (self) vs 105 (sum children))]
+max-parallelism=90 segment-costs=[801276522, 640672512] cpu-comparison-result=105 [max(90 (self) vs 105 (sum children))]
 13:AGGREGATE [STREAMING]
 |  Class 0
 |    output: avg(CAST(cs_quantity AS DECIMAL(12,2))), avg(CAST(cs_list_price AS DECIMAL(12,2))), avg(CAST(cs_coupon_amt AS DECIMAL(12,2))), avg(CAST(cs_sales_price AS DECIMAL(12,2))), avg(CAST(cs_net_profit AS DECIMAL(12,2))), avg(CAST(c_birth_year AS DECIMAL(12,2))), avg(CAST(cd1.cd_dep_count AS DECIMAL(12,2)))
@@ -287,7 +287,7 @@ max-parallelism=90 segment-costs=[801276522, 342521141] cpu-comparison-result=10
 |    output: avg(CAST(cs_quantity AS DECIMAL(12,2))), avg(CAST(cs_list_price AS DECIMAL(12,2))), avg(CAST(cs_coupon_amt AS DECIMAL(12,2))), avg(CAST(cs_sales_price AS DECIMAL(12,2))), avg(CAST(cs_net_profit AS DECIMAL(12,2))), avg(CAST(c_birth_year AS DECIMAL(12,2))), avg(CAST(cd1.cd_dep_count AS DECIMAL(12,2)))
 |    group by: NULL, NULL, NULL, NULL
 |  mem-estimate=146.00MB mem-reservation=138.00MB thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=7.81M cost=159300508
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=14.61M cost=159300508
 |  in pipelines: 00(GETNEXT)
 |
 12:HASH JOIN [INNER JOIN, BROADCAST]
@@ -544,7 +544,7 @@ PLAN-ROOT SINK
 |
 F09:PLAN FRAGMENT [HASH(CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(i_item_id) WHEN 11 THEN murmur_hash(i_item_id) WHEN 13 THEN murmur_hash(i_item_id) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_country) WHEN 9 THEN murmur_hash(ca_country) WHEN 11 THEN murmur_hash(ca_country) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_state) WHEN 9 THEN murmur_hash(ca_state) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_county) WHEN 9 THEN murmur_hash(NULL) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END)] hosts=10 instances=20 (adjusted from 120)
 Per-Instance Resources: mem-estimate=306.32MB mem-reservation=120.94MB thread-reservation=1
-max-parallelism=20 segment-costs=[74421817, 49382686, 100828279, 303] cpu-comparison-result=210 [max(20 (self) vs 210 (sum children))]
+max-parallelism=20 segment-costs=[96223490, 49382686, 100828279, 303] cpu-comparison-result=210 [max(20 (self) vs 210 (sum children))]
 15:TOP-N [LIMIT=100]
 |  order by: CASE valid_tid(16,8,10,12,14) WHEN 8 THEN ca_country WHEN 10 THEN ca_country WHEN 12 THEN ca_country WHEN 14 THEN NULL WHEN 16 THEN NULL END ASC, CASE valid_tid(16,8,10,12,14) WHEN 8 THEN ca_state WHEN 10 THEN ca_state WHEN 12 THEN NULL WHEN 14 THEN NULL WHEN 16 THEN NULL END ASC, CASE valid_tid(16,8,10,12,14) WHEN 8 THEN ca_county WHEN 10 THEN NULL WHEN 12 THEN NULL WHEN 14 THEN NULL WHEN 16 THEN NULL END ASC, CASE valid_tid(16,8,10,12,14) WHEN 8 THEN i_item_id WHEN 10 THEN i_item_id WHEN 12 THEN i_item_id WHEN 14 THEN i_item_id WHEN 16 THEN NULL END ASC
 |  mem-estimate=10.16KB mem-reservation=0B thread-reservation=0
@@ -580,12 +580,12 @@ max-parallelism=20 segment-costs=[74421817, 49382686, 100828279, 303] cpu-compar
 |
 24:EXCHANGE [HASH(CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(i_item_id) WHEN 9 THEN murmur_hash(i_item_id) WHEN 11 THEN murmur_hash(i_item_id) WHEN 13 THEN murmur_hash(i_item_id) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_country) WHEN 9 THEN murmur_hash(ca_country) WHEN 11 THEN murmur_hash(ca_country) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_state) WHEN 9 THEN murmur_hash(ca_state) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END,CASE valid_tid(7,9,11,13,15) WHEN 7 THEN murmur_hash(ca_county) WHEN 9 THEN murmur_hash(NULL) WHEN 11 THEN murmur_hash(NULL) WHEN 13 THEN murmur_hash(NULL) WHEN 15 THEN murmur_hash(NULL) END)]
 |  mem-estimate=35.82MB mem-reservation=0B thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=7.81M cost=25046116
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=14.61M cost=46847789
 |  in pipelines: 00(GETNEXT)
 |
 F06:PLAN FRAGMENT [HASH(c_current_addr_sk)] hosts=10 instances=40 (adjusted from 120)
 Per-Instance Resources: mem-estimate=364.40MB mem-reservation=138.00MB thread-reservation=1
-max-parallelism=40 segment-costs=[204847925, 342521141] cpu-comparison-result=210 [max(210 (self) vs 175 (sum children))]
+max-parallelism=70 segment-costs=[204847925, 640672512] cpu-comparison-result=210 [max(210 (self) vs 175 (sum children))]
 13:AGGREGATE [STREAMING]
 |  Class 0
 |    output: avg(CAST(cs_quantity AS DECIMAL(12,2))), avg(CAST(cs_list_price AS DECIMAL(12,2))), avg(CAST(cs_coupon_amt AS DECIMAL(12,2))), avg(CAST(cs_sales_price AS DECIMAL(12,2))), avg(CAST(cs_net_profit AS DECIMAL(12,2))), avg(CAST(c_birth_year AS DECIMAL(12,2))), avg(CAST(cd1.cd_dep_count AS DECIMAL(12,2)))
@@ -603,7 +603,7 @@ max-parallelism=40 segment-costs=[204847925, 342521141] cpu-comparison-result=21
 |    output: avg(CAST(cs_quantity AS DECIMAL(12,2))), avg(CAST(cs_list_price AS DECIMAL(12,2))), avg(CAST(cs_coupon_amt AS DECIMAL(12,2))), avg(CAST(cs_sales_price AS DECIMAL(12,2))), avg(CAST(cs_net_profit AS DECIMAL(12,2))), avg(CAST(c_birth_year AS DECIMAL(12,2))), avg(CAST(cd1.cd_dep_count AS DECIMAL(12,2)))
 |    group by: NULL, NULL, NULL, NULL
 |  mem-estimate=296.78MB mem-reservation=138.00MB thread-reservation=0
-|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=7.81M cost=159300508
+|  tuple-ids=7N,9N,11N,13N,15N row-size=641B cardinality=14.61M cost=159300508
 |  in pipelines: 00(GETNEXT)
 |
 12:HASH JOIN [INNER JOIN, BROADCAST]
@@ -686,7 +686,7 @@ max-parallelism=40 segment-costs=[204847925, 342521141] cpu-comparison-result=21
 |
 |--F13:PLAN FRAGMENT [HASH(c_current_addr_sk)] hosts=10 instances=40 (adjusted from 120)
 |  |  Per-Instance Resources: mem-estimate=21.21MB mem-reservation=10.50MB thread-reservation=1 runtime-filters-memory=2.00MB
-|  |  max-parallelism=40 segment-costs=[2940664]
+|  |  max-parallelism=70 segment-costs=[2940664]
 |  JOIN BUILD
 |  |  join-table-id=02 plan-id=03 cohort-id=01
 |  |  build expressions: ca_address_sk

@@ -41,11 +41,11 @@ SumCost: cost-total=956 max-instances=1 adj-instances=1 cost/inst=956 #cons:#pro
      in pipelines: 06(GETNEXT)
 
 F03:PLAN FRAGMENT [HASH(s_store_name,s_store_id)] hosts=10 instances=10 (adjusted from 120)
-Per-Instance Resources: mem-estimate=28.76MB mem-reservation=1.94MB thread-reservation=1
-max-parallelism=10 segment-costs=[9653, 7914, 439] cpu-comparison-result=120 [max(10 (self) vs 120 (sum children))]
+Per-Instance Resources: mem-estimate=28.94MB mem-reservation=1.94MB thread-reservation=1
+max-parallelism=10 segment-costs=[19718, 7914, 439] cpu-comparison-result=120 [max(10 (self) vs 120 (sum children))]
 cost-total=439 max-instances=1 adj-instances=10 cost/inst=44 #cons:#prod=100:100 reduction=1.0 cost/cons=4.39 cost/prod=4.39 raw-cost=439.9666
 cost-total=7914 max-instances=1 adj-instances=10 cost/inst=792 #cons:#prod=1350:100 reduction=13.5 cost/cons=5.862222 cost/prod=79.14 raw-cost=7914.795786244917
-SumCost: cost-total=9653 max-instances=1 adj-instances=10 cost/inst=966 #cons:#prod=1350:1350 reduction=1.0 cost/cons=7.1503706 cost/prod=7.1503706
+SumCost: cost-total=19718 max-instances=1 adj-instances=10 cost/inst=1972 #cons:#prod=13500:13500 reduction=1.0 cost/cons=1.4605926 cost/prod=1.4605926
   DATASTREAM SINK [FRAGMENT=F04, EXCHANGE=11, UNPARTITIONED]
   |  mem-estimate=639.76KB mem-reservation=0B thread-reservation=0 cost=439
   |  cost-total=439 max-instances=1 adj-instances=10 cost/inst=44 #cons:#prod=100:100 reduction=1.0 cost/cons=4.39 cost/prod=4.39 raw-cost=439.9666
@@ -60,31 +60,31 @@ SumCost: cost-total=9653 max-instances=1 adj-instances=10 cost/inst=966 #cons:#p
   |  output: sum:merge(CASE WHEN (d_day_name = 'Sunday') THEN ss_sales_price ELSE NULL END), sum:merge(CASE WHEN (d_day_name = 'Monday') THEN ss_sales_price ELSE NULL END), sum:merge(CASE WHEN (d_day_name = 'Tuesday') THEN ss_sales_price ELSE NULL END), sum:merge(CASE WHEN (d_day_name = 'Wednesday') THEN ss_sales_price ELSE NULL END), sum:merge(CASE WHEN (d_day_name = 'Thursday') THEN ss_sales_price ELSE NULL END), sum:merge(CASE WHEN (d_day_name = 'Friday') THEN ss_sales_price ELSE NULL END), sum:merge(CASE WHEN (d_day_name = 'Saturday') THEN ss_sales_price ELSE NULL END)
   |  group by: s_store_name, s_store_id
   |  mem-estimate=10.00MB mem-reservation=1.94MB spill-buffer=64.00KB thread-reservation=0
-  |  SumCost: cost-total=8535 max-instances=1 adj-instances=10 cost/inst=854 #cons:#prod=1350:1350 reduction=1.0 cost/cons=6.322222 cost/prod=6.322222
+  |  SumCost: cost-total=8535 max-instances=1 adj-instances=10 cost/inst=854 #cons:#prod=13500:1350 reduction=10.0 cost/cons=0.63222224 cost/prod=6.322222
   |  tuple-ids=3 row-size=156B cardinality=1.35K cost=8535
   |  in pipelines: 10(GETNEXT), 01(OPEN)
   |
   09:EXCHANGE [HASH(s_store_name,s_store_id)]
-     mem-estimate=18.76MB mem-reservation=0B thread-reservation=0
-     cost-total=1118 max-instances=1 adj-instances=10 cost/inst=112 #cons:#prod=1350:1350 reduction=1.0 cost/cons=0.8281481 cost/prod=0.8281481 raw-cost=1118.3632
-     tuple-ids=3 row-size=156B cardinality=1.35K cost=1118
+     mem-estimate=18.94MB mem-reservation=0B thread-reservation=0
+     cost-total=11183 max-instances=1 adj-instances=10 cost/inst=1119 #cons:#prod=13500:13500 reduction=1.0 cost/cons=0.8283704 cost/prod=0.8283704 raw-cost=11183.654999999999
+     tuple-ids=3 row-size=156B cardinality=13.50K cost=11183
      in pipelines: 01(GETNEXT)
 
 F00:PLAN FRAGMENT [RANDOM] hosts=10 instances=120
 Per-Host Shared Resources: mem-estimate=2.00MB mem-reservation=2.00MB thread-reservation=0 runtime-filters-memory=2.00MB
 Per-Instance Resources: mem-estimate=32.25MB mem-reservation=11.00MB thread-reservation=1
-max-parallelism=330 segment-costs=[3290070641, 14252] cpu-comparison-result=120 [max(120 (self) vs 22 (sum children))]
-cost-total=14252 max-instances=1 adj-instances=120 cost/inst=119 #cons:#prod=1350:1350 reduction=1.0 cost/cons=10.557037 cost/prod=10.557037 raw-cost=14252.8148
+max-parallelism=330 segment-costs=[3290070641, 142528] cpu-comparison-result=120 [max(120 (self) vs 22 (sum children))]
+cost-total=142528 max-instances=1 adj-instances=120 cost/inst=1188 #cons:#prod=13500:13500 reduction=1.0 cost/cons=10.55763 cost/prod=10.55763 raw-cost=142528.47
 SumCost: cost-total=3290070641 max-instances=330 adj-instances=120 cost/inst=27417254 #cons:#prod=8639935193:888242617 reduction=9.726999 cost/cons=0.38079804 cost/prod=3.7040224
   DATASTREAM SINK [FRAGMENT=F03, EXCHANGE=09, HASH(s_store_name,s_store_id)]
-  |  mem-estimate=6.25MB mem-reservation=0B thread-reservation=0 cost=14252
-  |  cost-total=14252 max-instances=1 adj-instances=120 cost/inst=119 #cons:#prod=1350:1350 reduction=1.0 cost/cons=10.557037 cost/prod=10.557037 raw-cost=14252.8148
+  |  mem-estimate=6.25MB mem-reservation=0B thread-reservation=0 cost=142528
+  |  cost-total=142528 max-instances=1 adj-instances=120 cost/inst=1188 #cons:#prod=13500:13500 reduction=1.0 cost/cons=10.55763 cost/prod=10.55763 raw-cost=142528.47
   05:AGGREGATE [STREAMING]
   |  output: sum(CASE WHEN (d_day_name = 'Sunday') THEN ss_sales_price ELSE NULL END), sum(CASE WHEN (d_day_name = 'Monday') THEN ss_sales_price ELSE NULL END), sum(CASE WHEN (d_day_name = 'Tuesday') THEN ss_sales_price ELSE NULL END), sum(CASE WHEN (d_day_name = 'Wednesday') THEN ss_sales_price ELSE NULL END), sum(CASE WHEN (d_day_name = 'Thursday') THEN ss_sales_price ELSE NULL END), sum(CASE WHEN (d_day_name = 'Friday') THEN ss_sales_price ELSE NULL END), sum(CASE WHEN (d_day_name = 'Saturday') THEN ss_sales_price ELSE NULL END)
   |  group by: s_store_name, s_store_id
   |  mem-estimate=10.00MB mem-reservation=3.00MB spill-buffer=128.00KB thread-reservation=0
-  |  SumCost: cost-total=1597280466 max-instances=160 adj-instances=120 cost/inst=13310671 #cons:#prod=888242617:1350 reduction=657957.5 cost/cons=1.7982479 cost/prod=1183170.8
-  |  tuple-ids=3 row-size=156B cardinality=1.35K cost=1597280466
+  |  SumCost: cost-total=1597280466 max-instances=160 adj-instances=120 cost/inst=13310671 #cons:#prod=888242617:13500 reduction=65795.75 cost/cons=1.7982479 cost/prod=118317.08
+  |  tuple-ids=3 row-size=156B cardinality=13.50K cost=1597280466
   |  in pipelines: 01(GETNEXT)
   |
   04:HASH JOIN [INNER JOIN, BROADCAST]
