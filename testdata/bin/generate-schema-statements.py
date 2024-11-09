@@ -112,7 +112,7 @@ from tests.common.test_dimensions import (
 
 parser = OptionParser()
 parser.add_option("-e", "--exploration_strategy", dest="exploration_strategy",
-                  default="core", help="The exploration strategy for schema gen: 'core',"\
+                  default="core", help="The exploration strategy for schema gen: 'core',"
                   " 'pairwise', or 'exhaustive'")
 parser.add_option("--hive_warehouse_dir", dest="hive_warehouse_dir",
                   default="/test-warehouse",
@@ -122,16 +122,16 @@ parser.add_option("-w", "--workload", dest="workload",
 parser.add_option("-s", "--scale_factor", dest="scale_factor", default="",
                   help="An optional scale factor to generate the schema for")
 parser.add_option("-f", "--force_reload", dest="force_reload", action="store_true",
-                  default= False, help='Skips HDFS exists check and reloads all tables')
+                  default=False, help='Skips HDFS exists check and reloads all tables')
 parser.add_option("-v", "--verbose", dest="verbose", action="store_true",
-                  default = False, help="If set, outputs additional logging.")
+                  default=False, help="If set, outputs additional logging.")
 parser.add_option("-b", "--backend", dest="backend", default="localhost:21000",
                   help="Backend connection to use, default: localhost:21000")
 parser.add_option("--table_names", dest="table_names", default=None,
-                  help="Only load the specified tables - specified as a comma-seperated "\
+                  help="Only load the specified tables - specified as a comma-seperated "
                   "list of base table names")
 parser.add_option("--table_formats", dest="table_formats", default=None,
-                  help="Override the test vectors and load using the specified table "\
+                  help="Override the test vectors and load using the specified table "
                   "formats. Ex. --table_formats=seq/snap/block,text/none")
 parser.add_option("--hdfs_namenode", dest="hdfs_namenode", default="localhost:20500",
                   help="HDFS name node for Avro schema URLs, default localhost:20500")
@@ -146,7 +146,7 @@ WORKLOAD_DIR = os.path.join(os.environ['IMPALA_HOME'], 'testdata', 'workloads')
 DATASET_DIR = os.path.join(os.environ['IMPALA_HOME'], 'testdata', 'datasets')
 SQL_OUTPUT_DIR = os.environ['IMPALA_DATA_LOADING_SQL_DIR']
 AVRO_SCHEMA_DIR = "avro_schemas"
-DEFAULT_FS=os.environ['DEFAULT_FS']
+DEFAULT_FS = os.environ['DEFAULT_FS']
 IMPALA_SUPPORTED_INSERT_FORMATS = ['parquet', 'hbase', 'text', 'kudu']
 
 IMPALA_PARQUET_COMPRESSION_MAP = \
@@ -178,18 +178,19 @@ DATASET_IDX = 1
 CODEC_IDX = 2
 COMPRESSION_TYPE_IDX = 3
 
-COMPRESSION_MAP = {'def': 'org.apache.hadoop.io.compress.DefaultCodec',
-                   'gzip': 'org.apache.hadoop.io.compress.GzipCodec',
-                   'bzip': 'org.apache.hadoop.io.compress.BZip2Codec',
-                   'snap': 'org.apache.hadoop.io.compress.SnappyCodec',
-                   'none': ''
-                  }
+COMPRESSION_MAP = {
+  'def': 'org.apache.hadoop.io.compress.DefaultCodec',
+  'gzip': 'org.apache.hadoop.io.compress.GzipCodec',
+  'bzip': 'org.apache.hadoop.io.compress.BZip2Codec',
+  'snap': 'org.apache.hadoop.io.compress.SnappyCodec',
+  'none': ''
+}
 
 AVRO_COMPRESSION_MAP = {
   'def': 'deflate',
   'snap': 'snappy',
   'none': '',
-  }
+}
 
 HIVE_TO_AVRO_TYPE_MAP = {
   'STRING': 'string',
@@ -206,7 +207,7 @@ HIVE_TO_AVRO_TYPE_MAP = {
   # in our tests.
   'TIMESTAMP': 'string',
   'BINARY': 'bytes',
-  }
+}
 
 PARQUET_ALTER_STATEMENT = "ALTER TABLE %(table_name)s SET\n\
      SERDEPROPERTIES ('blocksize' = '1073741824', 'compression' = '%(compression)s');"
@@ -230,9 +231,11 @@ PARTITIONED_INSERT_RE = re.compile(
 
 HINT_SHUFFLE = "/* +shuffle, clustered */"
 
+
 def build_create_statement(table_template, table_name, db_name, db_suffix,
                            file_format, compression, hdfs_location,
-                           force_reload, is_hive_stmt):
+                           force_reload, is_hive_stmt, data_set="",
+                           scale_factor=""):
   create_stmt = ''
   if (force_reload):
     tbl_type = 'TABLE'
@@ -252,7 +255,9 @@ def build_create_statement(table_template, table_name, db_name, db_suffix,
     db_suffix=db_suffix,
     table_name=table_name,
     file_format=FILE_FORMAT_TO_STORED_AS_MAP[file_format],
-    hdfs_location=hdfs_location)
+    hdfs_location=hdfs_location,
+    data_set=data_set,
+    scale_factor=scale_factor)
   # Apache Hive 3.1 doesn't support "STORED BY ICEBERG STORED AS AVRO" and
   # "STORED AS JSONFILE" (HIVE-25162, HIVE-19899)
   if is_hive_stmt and os.environ['USE_APACHE_HIVE'] == "true":
@@ -299,9 +304,9 @@ def parse_table_properties(file_format, table_properties):
   tblproperties = {}
   TABLE_PROPERTY_RE = re.compile(
       # Optional '<data-format>:' prefix, capturing just the 'data-format' part.
-      r'(?:(\w+):)?' +
+      r'(?:(\w+):)?'
       # Required key=value, capturing the key and value
-      r'(.+?)=(.*)')
+      + r'(.+?)=(.*)')
   for table_property in [_f for _f in table_properties.split("\n") if _f]:
     m = TABLE_PROPERTY_RE.match(table_property)
     if not m:
@@ -408,12 +413,13 @@ LOCATION '{{hdfs_location}}'
     partitioned_by=partitioned_by,
     tblproperties=tblproperties_clause,
     file_format_string=file_format_string
-    ).strip()
+  ).strip()
   # Remove empty lines from the stmt string.  There is an empty line for
   # each of the sections that didn't have anything (e.g. partitioned_by)
   stmt = os.linesep.join([s for s in stmt.splitlines() if s])
   stmt += ';'
   return stmt
+
 
 def build_hbase_create_stmt_in_hive(columns, partition_columns, table_name):
   # The hbase create statement differs sufficiently from the generic create to justify a
@@ -439,15 +445,16 @@ def build_hbase_create_stmt_in_hive(columns, partition_columns, table_name):
     columns=',\n'.join(columns),
     hbase_column_mapping=hbase_column_mapping,
     tbl_properties=tbl_properties,
-    ).strip()
+  ).strip()
   return stmt + ';'
+
 
 def avro_schema(columns):
   record = {
-    "name": "a", # doesn't matter
+    "name": "a",  # doesn't matter
     "type": "record",
     "fields": list()
-    }
+  }
   for column_spec in columns.strip().split('\n'):
     # column_spec looks something like "col_name col_type COMMENT comment"
     # (comment may be omitted, we don't use it)
@@ -460,7 +467,7 @@ def avro_schema(columns):
         precision = 9
       else:
         # Parse out scale and precision from decimal type
-        m = re.search("DECIMAL\((?P<precision>.*),(?P<scale>.*)\)", column_spec.upper())
+        m = re.search(r"DECIMAL\((?P<precision>.*),(?P<scale>.*)\)", column_spec.upper())
         assert m, "Could not parse decimal column spec: " + column_spec
         scale = int(m.group('scale'))
         precision = int(m.group('precision'))
@@ -477,9 +484,10 @@ def avro_schema(columns):
 
     record["fields"].append(
       {'name': name,
-       'type': [type, "null"]}) # all columns nullable
+       'type': [type, "null"]})  # all columns nullable
 
   return json.dumps(record)
+
 
 def build_compression_codec_statement(codec, compression_type, file_format):
   codec = (AVRO_COMPRESSION_MAP if file_format == 'avro' else COMPRESSION_MAP).get(codec)
@@ -487,6 +495,7 @@ def build_compression_codec_statement(codec, compression_type, file_format):
     return str()
   return (AVRO_COMPRESSION_CODEC % codec) if file_format == 'avro' else (
     COMPRESSION_TYPE % compression_type.upper() + '\n' + COMPRESSION_CODEC % codec)
+
 
 def build_codec_enabled_statement(codec):
   compression_enabled = 'false' if codec == 'none' else 'true'
@@ -531,7 +540,8 @@ def build_partitioned_load(insert, re_match, can_hint, params):
 
 
 def build_insert_into_statement(insert, db_name, db_suffix, table_name, file_format,
-                                hdfs_path, for_impala=False):
+                                hdfs_path, for_impala=False, data_set="",
+                                scale_factor=""):
   can_hint = for_impala and (file_format == 'parquet' or is_iceberg_table(file_format))
   params = {
     "db_name": db_name,
@@ -540,7 +550,9 @@ def build_insert_into_statement(insert, db_name, db_suffix, table_name, file_for
     "hdfs_location": hdfs_path,
     "impala_home": os.getenv("IMPALA_HOME"),
     "hint": "",
-    "part_predicate": ""
+    "part_predicate": "",
+    "data_set": data_set,
+    "scale_factor": scale_factor
   }
 
   m = PARTITIONED_INSERT_RE.search(insert)
@@ -573,6 +585,7 @@ def build_insert_into_statement(insert, db_name, db_suffix, table_name, file_for
     statement += SET_HIVE_INPUT_FORMAT % "HiveInputFormat"
   return statement + insert_statement
 
+
 def build_hbase_insert(db_name, db_suffix, table_name):
   hbase_insert = SET_HIVE_HBASE_BULK_LOAD + ';\n'
   # For Apache Hive, "hive.hbase.bulk does not exist" exception will be thrown and there
@@ -580,13 +593,14 @@ def build_hbase_insert(db_name, db_suffix, table_name):
   if os.environ['USE_APACHE_HIVE'] == "true":
     hbase_insert = ""
   hbase_insert += ("INSERT OVERWRITE TABLE {db_name}{db_suffix}.{table_name}"
-                   " SELECT * FROM {db_name}.{table_name};\n").\
-                   format(db_name=db_name, db_suffix=db_suffix,table_name=table_name)
+                   " SELECT * FROM {db_name}.{table_name};\n").format(
+                       db_name=db_name, db_suffix=db_suffix, table_name=table_name)
   return hbase_insert
+
 
 def build_insert(insert, db_name, db_suffix, file_format,
                  codec, compression_type, table_name, hdfs_path, create_hive=False,
-                 for_impala=False):
+                 for_impala=False, data_set="", scale_factor=""):
   # HBASE inserts don't need the hive options to be set, and don't require and HDFS
   # file location, so they're handled separately.
   if file_format == 'hbase' and not create_hive:
@@ -602,11 +616,12 @@ def build_insert(insert, db_name, db_suffix, file_format,
     output += build_impala_parquet_codec_statement(codec) + "\n"
   output += build_insert_into_statement(insert, db_name, db_suffix,
                                         table_name, file_format, hdfs_path,
-                                        for_impala) + "\n"
+                                        for_impala, data_set, scale_factor) + "\n"
   return output
 
 
-def build_load_statement(load_template, db_name, db_suffix, table_name):
+def build_load_statement(load_template, db_name, db_suffix, table_name, data_set="",
+    scale_factor=""):
   # hbase does not need the hdfs path.
   if table_name.startswith('hbase'):
     load_template = load_template.format(table_name=table_name,
@@ -646,17 +661,19 @@ def build_hbase_create_stmt(db_name, table_name, column_families, region_splits)
   create_stmts.append(create_statement)
   return create_stmts
 
+
 # Does a hdfs directory listing and returns array with all the subdir names.
 def get_hdfs_subdirs_with_data(path):
   tmp_file = tempfile.TemporaryFile("w+")
   cmd = "hadoop fs -du %s | grep -v '^0' | awk '{print $3}'" % path
-  subprocess.call([cmd], shell = True, stderr = open('/dev/null'), stdout = tmp_file)
+  subprocess.call([cmd], shell=True, stderr=open('/dev/null'), stdout=tmp_file)
   tmp_file.seek(0)
 
   # Results look like:
   # <acls> -  <user> <group> <date> /directory/subdirectory
   # So to get subdirectory names just return everything after the last '/'
   return [line[line.rfind('/') + 1:].strip() for line in tmp_file.readlines()]
+
 
 class Statements(object):
   """Simple container object for storing SQL statements to be output to a
@@ -676,6 +693,7 @@ class Statements(object):
   def __bool__(self):
     return bool(self.create or self.load or self.load_base)
 
+
 def eval_section(section_str):
   """section_str should be the contents of a section (i.e. a string). If section_str
   starts with `, evaluates section_str as a shell command and returns the
@@ -689,6 +707,7 @@ def eval_section(section_str):
   if stderr: print(stderr)
   assert p.returncode == 0
   return stdout.strip()
+
 
 def generate_statements(output_name, test_vectors, sections,
                         schema_include_constraints, schema_exclude_constraints,
@@ -801,10 +820,10 @@ def generate_statements(output_name, test_vectors, sections,
 
       tblproperties = parse_table_properties(create_file_format, table_properties)
       # ORC tables are full ACID by default.
-      if (convert_orc_to_full_acid and
-          HIVE_MAJOR_VERSION == 3 and
-          create_file_format == 'orc' and
-          'transactional' not in tblproperties):
+      if (convert_orc_to_full_acid
+          and HIVE_MAJOR_VERSION == 3
+          and create_file_format == 'orc'
+          and 'transactional' not in tblproperties):
         tblproperties['transactional'] = 'true'
       if create_file_format == 'orc' and create_codec != 'def':
         # The default value of 'orc.compress' is ZLIB which corresponds to 'def'.
@@ -861,7 +880,7 @@ def generate_statements(output_name, test_vectors, sections,
         if file_format == 'avro':
           if not os.path.exists(avro_schema_dir):
             os.makedirs(avro_schema_dir)
-          with open("%s/%s.json" % (avro_schema_dir, table_name),"w") as f:
+          with open("%s/%s.json" % (avro_schema_dir, table_name), "w") as f:
             f.write(avro_schema(columns))
       else:
         table_template = None
@@ -869,7 +888,7 @@ def generate_statements(output_name, test_vectors, sections,
       if table_template:
         output.create.append(build_create_statement(table_template, table_name, db_name,
             db_suffix, create_file_format, create_codec, data_path, force_reload,
-            create_hive))
+            create_hive, data_set, options.scale_factor))
       # HBASE create table
       if file_format == 'hbase':
         # If the HBASE_COLUMN_FAMILIES section does not exist, default to 'd'
@@ -907,18 +926,20 @@ def generate_statements(output_name, test_vectors, sections,
         load_from_json_file = file_format == 'json' and table_name.endswith('_json')
         if not db_suffix or load_from_json_file:
           if load:
-            hive_output.load_base.append(build_load_statement(load, db_name,
-                                                              db_suffix, table_name))
+            hive_output.load_base.append(
+                build_load_statement(load, db_name, db_suffix, table_name,
+                  data_set, options.scale_factor))
           else:
             print('Empty base table load for %s. Skipping load generation' % table_name)
         elif file_format in ['kudu', 'parquet', 'iceberg']:
           if insert_hive:
             hive_output.load.append(build_insert(insert_hive, db_name, db_suffix,
-                file_format, codec, compression_type, table_name, data_path))
+                file_format, codec, compression_type, table_name, data_path,
+                for_impala=False, data_set=data_set, scale_factor=options.scale_factor))
           elif insert:
             impala_load.load.append(build_insert(insert, db_name, db_suffix,
                 file_format, codec, compression_type, table_name, data_path,
-                for_impala=True))
+                for_impala=True, data_set=data_set, scale_factor=options.scale_factor))
           else:
             print('Empty parquet/kudu load for table %s. Skipping insert generation'
               % table_name)
@@ -961,6 +982,7 @@ def parse_schema_template_file(file_name):
                          'TABLE_PROPERTIES', 'HBASE_REGION_SPLITS', 'HIVE_MAJOR_VERSION']
   return parse_test_file(file_name, VALID_SECTION_NAMES, skip_unknown_sections=False)
 
+
 if __name__ == "__main__":
   if options.table_formats is None:
     if options.exploration_strategy not in KNOWN_EXPLORATION_STRATEGIES:
@@ -968,7 +990,7 @@ if __name__ == "__main__":
       print('Valid values:', ', '.join(KNOWN_EXPLORATION_STRATEGIES))
       sys.exit(1)
 
-    test_vectors = [vector.value for vector in\
+    test_vectors = [vector.value for vector in
         load_table_info_dimension(options.workload, options.exploration_strategy)]
   else:
     table_formats = options.table_formats.split(',')
