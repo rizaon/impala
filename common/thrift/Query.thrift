@@ -146,6 +146,16 @@ enum TTupleCachePlacementPolicy {
   COST_BASED = 1
 }
 
+// Option to control how to estimate memory.
+enum TMemoryEstimateMode {
+  // Simple sum of all fragment instances memory resource.
+  TOTAL = 0,
+
+  // Search largest streaming pipeline in query plan and use the total memory estimate
+  // of that pipeline as memory estimate of the whole query.
+  MAX_PIPELINE = 1
+}
+
 // constants for TQueryOptions.num_nodes
 const i32 NUM_NODES_ALL = 0
 const i32 NUM_NODES_ALL_RACKS = -1
@@ -811,6 +821,9 @@ struct TQueryOptions {
 
   // See comment in ImpalaService.thrift
   199: optional i32 show_create_table_partition_limit = 1000
+
+  // See comment in ImpalaService.thrift
+  200: optional TMemoryEstimateMode memory_estimate_mode = TMemoryEstimateMode.TOTAL
 }
 
 // Impala currently has three types of sessions: Beeswax, HiveServer2 and external

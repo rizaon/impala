@@ -713,7 +713,7 @@ select * from store_sales
 where ss_sold_date_sk = 1
 ---- PARALLELPLANS
 Max Per-Host Resource Reservation: Memory=6.00MB Threads=1
-Per-Host Resource Estimates: Memory=10MB
+Per-Host Resource Estimates: Memory=6MB
 F00:PLAN FRAGMENT [RANDOM] hosts=1 instances=1
 |  Per-Instance Resources: mem-estimate=6.00MB mem-reservation=6.00MB thread-reservation=1
 |  max-parallelism=1 segment-costs=[0, 3954235]

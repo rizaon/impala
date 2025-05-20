@@ -1432,6 +1432,13 @@ Status impala::SetQueryOption(TImpalaQueryOptions::type option, const string& va
         query_options->__set_show_create_table_partition_limit(int32_t_val);
         break;
       }
+      case TImpalaQueryOptions::MEMORY_ESTIMATE_MODE: {
+        TMemoryEstimateMode::type enum_type;
+        RETURN_IF_ERROR(GetThriftEnum(value, "Memory estimation mode",
+            _TMemoryEstimateMode_VALUES_TO_NAMES, &enum_type));
+        query_options->__set_memory_estimate_mode(enum_type);
+        break;
+      }
       default:
         string key = to_string(option);
         if (IsRemovedQueryOption(key)) {

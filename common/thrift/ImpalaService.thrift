@@ -1073,6 +1073,13 @@ enum TImpalaQueryOptions {
   // Maximum number of partitions to show in SHOW CREATE TABLE WITH STATS.
   // 0 means no limit. Default is 1000.
   SHOW_CREATE_TABLE_PARTITION_LIMIT = 198
+
+  // Control how to determine memory esimate of the whole query. Valid values are:
+  //   TOTAL - default value, simple sum of all fragment instances memory resource.
+  //   MEMORY_ESTIMATE_MODE - search largest streaming pipeline in query plan and use
+  //       the total memory estimate of that pipeline as memory estimate of the whole
+  //       query.
+  MEMORY_ESTIMATE_MODE = 199
 }
 
 // The summary of a DML statement.

@@ -129,6 +129,10 @@ public class ResourceProfile {
     return memEstimateBytes_ > 0 || minMemReservationBytes_ > 0 || threadReservation_ > 0;
   }
 
+  public long getMemGrowthEstimate() {
+    return memEstimateBytes_ - Math.max(0, minMemReservationBytes_);
+  }
+
   // Return a string with the resource profile information suitable for display in an
   // explain plan in a format like: "resource1=value resource2=value"
   public String getExplainString() {

@@ -24,6 +24,7 @@ import org.apache.impala.catalog.SideloadTableStats;
 import org.apache.impala.common.ByteUnits;
 import org.apache.impala.common.RuntimeEnv;
 import org.apache.impala.thrift.TExecutorGroupSet;
+import org.apache.impala.thrift.TMemoryEstimateMode;
 import org.apache.impala.thrift.TQueryOptions;
 import org.apache.impala.thrift.TReplicaPreference;
 import org.apache.impala.thrift.TSlotCountStrategy;
@@ -72,6 +73,7 @@ public class TpcdsCpuCostPlannerTest extends PlannerTestBase {
           .setReplica_preference(TReplicaPreference.REMOTE)
           .setSlot_count_strategy(TSlotCountStrategy.PLANNER_CPU_ASK)
           .setMem_estimate_scale_for_spilling_operator(1.0)
+          .setMemory_estimate_mode(TMemoryEstimateMode.MAX_PIPELINE)
           .setPlanner_testcase_mode(true)
           // Required so that output doesn't vary by whether scanned tables have stats &
           // numRows property or not.

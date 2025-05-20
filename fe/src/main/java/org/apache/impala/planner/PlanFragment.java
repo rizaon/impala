@@ -529,12 +529,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     return perBackendResourceProfile_;
   }
 
+  /**
+   * Return {@link #getPerInstanceResourceProfile()} times number of fragment instances.
+   */
+  public ResourceProfile getTotalInstancesResourceProfile(TQueryOptions queryOptions) {
+    return perInstanceResourceProfile_.multiply(getNumInstancesPerHost(queryOptions));
+  }
+
   /*
    * Return the resource profile for all instances on a single backend.
    */
   public ResourceProfile getTotalPerBackendResourceProfile(TQueryOptions queryOptions) {
-    return perInstanceResourceProfile_.multiply(getNumInstancesPerHost(queryOptions))
-        .sum(perBackendResourceProfile_);
+    return getTotalInstancesResourceProfile(queryOptions).sum(perBackendResourceProfile_);
   }
 
   /**
