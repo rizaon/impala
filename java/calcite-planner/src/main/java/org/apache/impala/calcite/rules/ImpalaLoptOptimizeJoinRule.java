@@ -14,15 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.calcite.rel.rules;
+package org.apache.impala.calcite.rules;
 
+import org.apache.impala.calcite.schema.ImpalaRelMdRowCount;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelRule;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.Aggregate;
+import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
+import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.TableScan;
+import org.apache.calcite.rel.core.Union;
 import org.apache.calcite.rel.core.JoinInfo;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.RelFactories;
@@ -30,6 +36,11 @@ import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.metadata.RelColumnOrigin;
 import org.apache.calcite.rel.metadata.RelMdUtil;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.apache.calcite.rel.rules.LoptJoinTree;
+import org.apache.calcite.rel.rules.LoptMultiJoin;
+import org.apache.calcite.rel.rules.LoptSemiJoinOptimizer;
+import org.apache.calcite.rel.rules.MultiJoin;
+import org.apache.calcite.rel.rules.TransformationRule;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -46,6 +57,8 @@ import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.ImmutableIntList;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.mapping.IntPair;
+import org.apache.calcite.plan.hep.HepRelVertex;
+import org.apache.impala.calcite.schema.ImpalaCost;
 
 import org.checkerframework.checker.nullness.qual.KeyFor;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -64,6 +77,41 @@ import java.util.TreeSet;
 import static java.util.Objects.requireNonNull;
 
 /**
+ * IMPALA COMMENT on class:
+ *
+ * This class was grabbed from
+ * https://github.com/apache/calcite/blob/calcite-1.37.0/core/src/main/java/org/apache/...
+ * /calcite/rel/rules/LoptOptimizeJoinRule.java
+ *
+ * The use of runtime filters within Impala throw a wrench into the join optimization
+ * ordering. We should factor this in to come up with much better join ordering choices.
+ * While this first attempt in this file does not do this, it does put some band-aids
+ * on cases where the Calcite algorithm can go awry. Namely, the following changes
+ * are made from the original Calcite algorithm:
+ *
+ * - When attempting the check of whether to push down a join versus keeping the current
+ *   join, the epsilon on the tiebreaker has been made a little wider. If it does go
+ *   to the tiebreaker, it compares the "leftest most" cardinality on the 2 choices. This
+ *   allows a more effective runtime filter to be used, if found.
+ *
+ * - "Complex" trees threw a bit of a wrench into runtime filtering. A "simple" tree is
+ *   defined here as a tree with only projects and filters. If a tree is complex, the row
+ *   count will have gone through some major transformation, and it isn't quite apparent
+ *   based on the row count at the top level that a runtime filter could have a major
+ *   impact. It especially caused problems when the complex tree was processed in between
+ *   simple trees. Because the row count showed up low, a swap might occur with a simple
+ *   tree where it shouldn't have. In practice, it helped extremely to delay the
+ *   processing of complex trees until after all the simple trees have been processed.
+ *
+ * - Similar to the last point, we also do not want to swap the left and right side
+ *   if we detect a complex tree that has its "leftest" most input with a high
+ *   cardinality because a runtime filter could help improve performance greatly.
+ *
+ * To sum up: These are band-aid patches that take guesses as to when a runtime
+ * filter will be used. A more complete analysis should be done at some point, but
+ * these changes should improve performance, as tested on the tpcds queries.
+ */
+/**
  * Planner rule that implements the heuristic planner for determining optimal
  * join orderings.
  *
@@ -74,23 +122,23 @@ import static java.util.Objects.requireNonNull;
  * @see CoreRules#MULTI_JOIN_OPTIMIZE
  */
 @Value.Enclosing
-public class LoptOptimizeJoinRule
-    extends RelRule<LoptOptimizeJoinRule.Config>
+public class ImpalaLoptOptimizeJoinRule
+    extends RelRule<ImpalaLoptOptimizeJoinRule.Config>
     implements TransformationRule {
 
   /** Creates an LoptOptimizeJoinRule. */
-  protected LoptOptimizeJoinRule(Config config) {
+  protected ImpalaLoptOptimizeJoinRule(Config config) {
     super(config);
   }
 
   @Deprecated // to be removed before 2.0
-  public LoptOptimizeJoinRule(RelBuilderFactory relBuilderFactory) {
+  public ImpalaLoptOptimizeJoinRule(RelBuilderFactory relBuilderFactory) {
     this(Config.DEFAULT.withRelBuilderFactory(relBuilderFactory)
         .as(Config.class));
   }
 
   @Deprecated // to be removed before 2.0
-  public LoptOptimizeJoinRule(RelFactories.JoinFactory joinFactory,
+  public ImpalaLoptOptimizeJoinRule(RelFactories.JoinFactory joinFactory,
       RelFactories.ProjectFactory projectFactory,
       RelFactories.FilterFactory filterFactory) {
     this(RelBuilder.proto(joinFactory, projectFactory, filterFactory));
@@ -457,12 +505,28 @@ public class LoptOptimizeJoinRule
     final List<String> fieldNames =
         multiJoin.getMultiJoinRel().getRowType().getFieldNames();
 
+    // Find out if there is a simple tree, that is, a tree that
+    // is basically comprised of only filters, projects, and
+    // a table scan.
+    boolean hasSimpleTree = false;
+    for (int i = 0; i < multiJoin.getNumJoinFactors(); i++) {
+      hasSimpleTree |= (isSimpleTree(multiJoin, i) && !multiJoin.isNullGenerating(i));
+    }
+
     // generate the N join orderings
     for (int i = 0; i < multiJoin.getNumJoinFactors(); i++) {
       // first factor cannot be null generating
       if (multiJoin.isNullGenerating(i)) {
         continue;
       }
+
+      // We don't want to start the ordering with a complex tree because it
+      // will do comparisons with individual branches rather than the whole
+      // branch. However, if all branches are complex plans, it's ok to createOrdering.
+      if (hasSimpleTree && isComplexTree(multiJoin, i)) {
+        continue;
+      }
+
       LoptJoinTree joinTree =
           createOrdering(
               mq,
@@ -831,6 +895,24 @@ public class LoptOptimizeJoinRule
                 factor);
       }
 
+      // We want to process complex trees last. There can potentially
+      // be a scan that is eligible for a runtime filter but we should
+      // process all the simple trees first because the runtime
+      // filter may help a portion of the complex tree but not the whole
+      // tree.  This is applicable to q95 of tpcds
+      if (isSimpleTree(multiJoin, nextFactor) && (dimWeight != 0)) {
+        if (isComplexTree(multiJoin, factor)) {
+          continue;
+        }
+      } else if (isComplexTree(multiJoin, nextFactor)) {
+        if (isSimpleTree(multiJoin, factor) && dimWeight != 0) {
+          nextFactor = factor;
+          bestWeight = dimWeight;
+          bestCardinality = cardinality;
+          continue;
+        }
+      }
+
       // if two factors have the same weight, pick the one
       // with the higher cardinality join key, relative to
       // the join being considered
@@ -977,11 +1059,14 @@ public class LoptOptimizeJoinRule
       requireNonNull(costPushDown, "costPushDown");
       requireNonNull(costTop, "costTop");
       if (costPushDown.isEqWithEpsilon(costTop)) {
+        // IMPALA CHANGE
         // if both plans cost the same (with an allowable round-off
-        // margin of error), favor the one that passes
-        // around the wider rows further up in the tree
-        if (rowWidthCost(pushDownTree.getJoinTree())
-            < rowWidthCost(topTree.getJoinTree())) {
+        // margin of error), the left side will be the one that contains
+        // more rows. This could allow the opportunity for a runtime filter
+        // to be created.
+        Double topRowWidth = getLeftestRowWidth(mq, topTree.getJoinTree());
+        Double pushRowWidth = getLeftestRowWidth(mq, pushDownTree.getJoinTree());
+        if (pushRowWidth > topRowWidth) {
           bestTree = pushDownTree;
         } else {
           bestTree = topTree;
@@ -1899,25 +1984,129 @@ public class LoptOptimizeJoinRule
       boolean selfJoin) {
     boolean swap = false;
 
+    // IMPALA CHANGE: Commented this out because LoptJoinTree.Leaf
+    // is protected within Calcite and causes a compilation error.
+    // It's probably rare enough that it won't cause too many issues
+    // but this should be addressed at some point.
+    /*
     if (selfJoin) {
       return !multiJoin.isLeftFactorInRemovableSelfJoin(
           ((LoptJoinTree.Leaf) left.getFactorTree()).getId());
     }
+    */
 
     final Double leftRowCount = mq.getRowCount(left.getJoinTree());
     final Double rightRowCount = mq.getRowCount(right.getJoinTree());
 
-    // The left side is smaller than the right if it has fewer rows,
-    // or if it has the same number of rows as the right (excluding
-    // roundoff), but fewer columns.
+    // IMPALA CHANGE: Different logic to check if we should do a swap. We still
+    // want the greater side to be on the left (though unlike Calcite, we also
+    // multiply by row size. However, it is possible that the "lesser" side is
+    // a complex tree that has a left side with a higher cardinality that would
+    // make it the "greater" side. In this case, a runtime filter will help, so
+    // we take this into account when doing the swap.
     if ((leftRowCount != null)
-        && (rightRowCount != null)
-        && ((leftRowCount < rightRowCount)
-        || ((Math.abs(leftRowCount - rightRowCount) < RelOptUtil.EPSILON)
-            && (rowWidthCost(left.getJoinTree()) < rowWidthCost(right.getJoinTree()))))) {
-      swap = true;
+        && (rightRowCount != null)) {
+      Double leftRowSize = mq.getAverageRowSize(left.getJoinTree());
+      Double rightRowSize = mq.getAverageRowSize(right.getJoinTree());
+
+      boolean leftSideIsGreater = (leftRowCount * leftRowSize >= rightRowCount * rightRowSize);
+      RelNode greaterSideNode = leftSideIsGreater ? left.getJoinTree() : right.getJoinTree();
+      RelNode lesserSideNode = leftSideIsGreater ? right.getJoinTree() : left.getJoinTree();
+      boolean runtimeFilterCouldHelp = couldRuntimeFilterHelp(mq, lesserSideNode, greaterSideNode);
+      // Swap will be true if the left side is greater, but the runtime filter will help the
+      // right side.  Also, swap will be true if right side is greater, but the runtime filter
+      // will help the left side.
+      if (leftSideIsGreater == runtimeFilterCouldHelp) {
+        swap = true;
+      }
     }
     return swap;
+  }
+
+  /**
+   * Returns true if it turns out the lesser side has a table scan on its far left that
+   * is 99% higher than the cardinality on the right.
+   */
+  private static boolean couldRuntimeFilterHelp(RelMetadataQuery mq, RelNode lesserSideNode,
+      RelNode greaterSideNode) {
+    Double lesserSideRowWidth = getLeftestRowWidth(mq, lesserSideNode);
+    Double greaterSideRowWidth =
+        mq.getRowCount(greaterSideNode) * mq.getAverageRowSize(greaterSideNode);
+    // Lowered the value to .01 for q64.  Anything higher than
+    // about .1 will caused (store_returns, (store_sales, item))
+    // to change to ((store_sales, item), store_returns) which
+    // created a really bad plan.
+    boolean runFilterWillHelp = (lesserSideRowWidth * .01 > greaterSideRowWidth);
+    return runFilterWillHelp;
+  }
+
+  /**
+   * Check if the given factor in the multiJoin is a simple tree. If the factor
+   * is -1, return false.
+   */
+  private static boolean isSimpleTree(LoptMultiJoin multiJoin, int factor) {
+    if (factor == -1) {
+      return false;
+    }
+    return !isComplexTree(multiJoin.getJoinFactor(factor), true);
+  }
+
+  /**
+   * Check if the given factor in the multiJoin is a complex tree. If the factor
+   * is -1, return false.
+   */
+  private static boolean isComplexTree(LoptMultiJoin multiJoin, int factor) {
+    if (factor == -1) {
+      return false;
+    }
+    return isComplexTree(multiJoin.getJoinFactor(factor), true);
+  }
+
+  /**
+   * Check if the RelNode is a complex tree. One piece of tricky logic: It is possible
+   * that the current RelNode is a Join RelNode and part of the RelNode tree that is
+   * being built from this MultiJoin. So any joins at the top level are ok for this check.
+   * This method just wants to ensure that the whole RelNode tree consists of
+   * simple trees.
+   */
+  private static boolean isComplexTree(RelNode relNode, boolean ignoreJoin) {
+    if (relNode instanceof HepRelVertex) {
+      relNode = ((HepRelVertex)relNode).getCurrentRel();
+    }
+
+    if ((relNode instanceof Aggregate) || (relNode instanceof Union)) {
+      return true;
+    }
+
+    if (relNode instanceof Join) {
+      if (!ignoreJoin) {
+        return true;
+      }
+    } else {
+      ignoreJoin = false;
+    }
+
+    for (RelNode input : relNode.getInputs()) {
+      if (isComplexTree(input, ignoreJoin)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static Double getLeftestRowWidth(RelMetadataQuery mq, RelNode relNode) {
+    if (relNode instanceof HepRelVertex) {
+      relNode = ((HepRelVertex)relNode).getCurrentRel();
+    }
+
+    while (relNode.getInputs().size() > 0) {
+      relNode = relNode.getInput(0);
+      if (relNode instanceof HepRelVertex) {
+        relNode = ((HepRelVertex)relNode).getCurrentRel();
+      }
+    }
+    return mq.getRowCount(relNode) * mq.getAverageRowSize(relNode);
+
   }
 
   /**
@@ -2096,11 +2285,11 @@ public class LoptOptimizeJoinRule
   /** Rule configuration. */
   @Value.Immutable
   public interface Config extends RelRule.Config {
-    Config DEFAULT = ImmutableLoptOptimizeJoinRule.Config.of()
-        .withOperandSupplier(b -> b.operand(MultiJoin.class).anyInputs());
+    Config DEFAULT = ImmutableImpalaLoptOptimizeJoinRule.Config.builder()
+        .operandSupplier(b -> b.operand(MultiJoin.class).anyInputs()).build();
 
-    @Override default LoptOptimizeJoinRule toRule() {
-      return new LoptOptimizeJoinRule(this);
+    @Override default ImpalaLoptOptimizeJoinRule toRule() {
+      return new ImpalaLoptOptimizeJoinRule(this);
     }
   }
 }

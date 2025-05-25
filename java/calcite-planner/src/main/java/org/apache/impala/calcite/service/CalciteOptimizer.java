@@ -45,6 +45,7 @@ import org.apache.impala.calcite.rel.node.ImpalaPlanRel;
 import org.apache.impala.calcite.rules.CombineValuesNodesRule;
 import org.apache.impala.calcite.rules.ExtractLiteralAgg;
 import org.apache.impala.calcite.rules.ImpalaJoinProjectTransposeRule;
+import org.apache.impala.calcite.rules.ImpalaLoptOptimizeJoinRule;
 import org.apache.impala.calcite.rules.ImpalaMinusToDistinctRule;
 import org.apache.impala.calcite.rules.RewriteRexOverRule;
 import org.apache.impala.calcite.util.LogUtil;
@@ -64,6 +65,9 @@ import org.slf4j.LoggerFactory;
 public class CalciteOptimizer implements CompilerStep {
   protected static final Logger LOG =
       LoggerFactory.getLogger(CalciteOptimizer.class.getName());
+
+   public static final ImpalaLoptOptimizeJoinRule IMPALA_MULTI_JOIN_OPTIMIZE =
+        ImpalaLoptOptimizeJoinRule.Config.DEFAULT.toRule();
 
   private final CalciteCatalogReader reader_;
 
@@ -251,7 +255,7 @@ public class CalciteOptimizer implements CompilerStep {
     builder.addMatchOrder(HepMatchOrder.BOTTOM_UP);
     builder.addRuleInstance(CoreRules.JOIN_CONDITION_PUSH);
     builder.addRuleInstance(CoreRules.JOIN_TO_MULTI_JOIN);
-    builder.addRuleInstance(CoreRules.MULTI_JOIN_OPTIMIZE);
+    builder.addRuleInstance(IMPALA_MULTI_JOIN_OPTIMIZE);
 
     return runProgram(plan, builder.build());
   }
