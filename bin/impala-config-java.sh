@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-IMPALA_JDK_VERSION=${IMPALA_JDK_VERSION:-system}
+IMPALA_JDK_VERSION=${IMPALA_JDK_VERSION:-17}
 
 # Set OS Java package variables for bootstrap_system and Docker builds
 if [[ "${IMPALA_JDK_VERSION}" == "system" || "${IMPALA_JDK_VERSION}" == "8" ]]; then
