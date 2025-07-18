@@ -1405,6 +1405,13 @@ Status impala::SetQueryOption(TImpalaQueryOptions::type option, const string& va
         query_options->__set_broadcast_cost_scale_factor(double_val);
         break;
       }
+      case TImpalaQueryOptions::PREAGG_MAX_GROUP_RESET: {
+        int32_t int32_t_val = 0;
+        RETURN_IF_ERROR(QueryOptionParser::ParseAndCheckInclusiveLowerBound<int32_t>(
+            option, value, -1, &int32_t_val));
+        query_options->__set_preagg_max_group_reset(int32_t_val);
+        break;
+      }
       default:
         string key = to_string(option);
         if (IsRemovedQueryOption(key)) {

@@ -1044,6 +1044,12 @@ enum TImpalaQueryOptions {
   // while setting to a value less than 1.0 will favor broadcast joins more.
   // Default to 1.0, which means no adjustment is applied.
   BROADCAST_COST_SCALE_FACTOR = 194
+
+  // Maximum number of hash table reset in grouping aggregator inside preaggregation
+  // node. If the number of resets for an individual grouping aggregator exceeds this
+  // value, the grouping aggregator will stop expanding its hash table.
+  // Value -1 means no limit. Default to 0.
+  PREAGG_MAX_GROUP_RESET = 195
 }
 
 // The summary of a DML statement.

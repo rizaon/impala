@@ -481,7 +481,7 @@ struct TQueryOptions {
   98: optional i64 broadcast_bytes_limit = 34359738368;
 
   // See comment in ImpalaService.thrift
-  99: optional i64 preagg_bytes_limit = -1;
+  99: optional i64 preagg_bytes_limit = 536870912  // 512MB
 
   // See comment in ImpalaService.thrift
   100: optional bool enable_cnf_rewrites = true;
@@ -788,6 +788,9 @@ struct TQueryOptions {
 
   // See comment in ImpalaService.thrift
   195: optional double broadcast_cost_scale_factor = 1.0
+
+  // See comment in ImpalaService.thrift
+  196: optional i32 preagg_max_group_reset = 0
 }
 
 // Impala currently has three types of sessions: Beeswax, HiveServer2 and external

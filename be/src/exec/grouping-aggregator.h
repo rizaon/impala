@@ -212,7 +212,13 @@ class GroupingAggregator : public Aggregator {
   virtual std::string DebugString(int indentation_level = 0) const override;
   virtual void DebugString(int indentation_level, std::stringstream* out) const override;
 
+  virtual bool NeedsFlush() const override { return needs_flush_; }
+
   virtual int64_t GetNumKeys() const override;
+
+  /// Combo of Reset() and Reopen().
+  /// Only valid for streaming preaggregation.
+  Status ResetAndReopen(RuntimeState* state, RowBatch* row_batch);
 
  private:
   struct Partition;
@@ -312,6 +318,13 @@ class GroupingAggregator : public Aggregator {
   /// The number of rows that have been passed to AddBatch() or AddBatchStreaming().
   int64_t num_input_rows_ = 0;
 
+  /// The number of rows that have been passed to AddBatch() or AddBatchStreaming()
+  /// after the last Rest().
+  int64_t num_input_rows_since_reset_ = 0;
+
+  /// Num input rows that has passed through or flushed to next operator.
+  int64_t num_input_rows_processed_ = 0;
+
   /// True if this aggregator is being executed in a subplan.
   const bool is_in_subplan_;
 
@@ -359,16 +372,26 @@ class GroupingAggregator : public Aggregator {
   /// The number of rows passed through without aggregation.
   RuntimeProfile::Counter* num_passthrough_rows_ = nullptr;
 
+  /// The number of rows flushed to next operator, which may have fully/partially
+  /// aggregated.
+  RuntimeProfile::Counter* num_flushed_rows_ = nullptr;
+
   /// The estimated reduction of the preaggregation.
   RuntimeProfile::Counter* preagg_estimated_reduction_ = nullptr;
 
   /// Expose the minimum reduction factor to continue growing the hash tables.
   RuntimeProfile::Counter* preagg_streaming_ht_min_reduction_ = nullptr;
 
+  /// The number of times reset invoked at this aggregator.
+  RuntimeProfile::Counter* num_agg_reset_ = nullptr;
+
   /// The estimated number of input rows from the planner.
   int64_t estimated_input_cardinality_;
 
   TDebugOptions debug_options_;
+
+  /// True if this aggregator is due for flush to next operator.
+  bool needs_flush_ = false;
 
   /////////////////////////////////////////
   /// BEGIN: Members that must be Reset()
@@ -733,6 +756,9 @@ class GroupingAggregator : public Aggregator {
 
   /// Gets current number of pinned partitions.
   int GetNumPinnedPartitions();
+
+  /// Main implementation for reset.
+  Status ResetInternal(RuntimeState* state, RowBatch* row_batch);
 };
 } // namespace impala
 

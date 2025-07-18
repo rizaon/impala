@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "exec/exec-node-util.h"
+#include "exec/grouping-aggregator.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/row-batch.h"
 #include "runtime/runtime-state.h"
@@ -68,24 +69,83 @@ Status StreamingAggregationNode::GetNext(
     return Status::OK();
   }
 
+  int prev_rows_returned = rows_returned();
+  bool is_passing_through = false;
+
   // With multiple Aggregators, each will only set a single tuple per row. We rely on the
   // other tuples to be null to detect which Aggregator set which row.
   if (aggs_.size() > 1) row_batch->ClearTuplePointers();
 
-  if (!child_eos_ || !child_batch_processed_) {
+  if (!needs_flush() && !child_fully_ingested()) {
     // For streaming preaggregations, we process rows from the child as we go.
     RETURN_IF_ERROR(GetRowsStreaming(state, row_batch));
+    is_passing_through = row_batch->num_rows() > 0;
     *eos = false;
-  } else {
+  }
+  if (child_fully_ingested()) {
+    // All rows from the child have been processed, so we can return rows from the
+    // aggregators and wrap up.
     bool aggregator_eos = false;
     RETURN_IF_ERROR(
         aggs_[curr_output_agg_idx_]->GetNext(state, row_batch, &aggregator_eos));
     if (aggregator_eos) ++curr_output_agg_idx_;
     *eos = curr_output_agg_idx_ >= aggs_.size();
+  } else if (needs_flush()) {
+    // Do intermittent flush to next operator above.
+    bool skip_current_agg = true;
+    if (aggs_[curr_output_agg_idx_]->GetNumGroupingExprs() > 0
+        && aggs_[curr_output_agg_idx_]->NeedsFlush()) {
+      // Only flush the GroupingAggregator.
+      skip_current_agg = false;
+      bool aggregator_eos = false;
+      GroupingAggregator* grouping_agg =
+          static_cast<GroupingAggregator*>(aggs_[curr_output_agg_idx_].get());
+      RETURN_IF_ERROR(grouping_agg->GetNext(state, row_batch, &aggregator_eos));
+      if (aggregator_eos) {
+        VLOG_QUERY << label() << " finish flushing agg_idx=" << curr_output_agg_idx_;
+        RETURN_IF_ERROR(grouping_agg->ResetAndReopen(state, row_batch));
+        ++curr_output_agg_idx_;
+      }
+    }
+
+    if (skip_current_agg) {
+      VLOG_QUERY << label() << " skip flushing agg_idx=" << curr_output_agg_idx_;
+      ++curr_output_agg_idx_;
+    }
+
+    if (curr_output_agg_idx_ >= aggs_.size()) {
+      curr_output_agg_idx_ = 0;
+      *eos = child_fully_ingested() && num_agg_to_flush_ == aggs_.size();
+      VLOG_QUERY << label() << " Finished flushing aggs. child_fully_ingested="
+                 << child_fully_ingested() << ", eos=" << *eos
+                 << ", num_agg_to_flush_=" << num_agg_to_flush_
+                 << ", aggs_.size()=" << aggs_.size()
+                 << ", prev_rows_returned=" << prev_rows_returned;
+      num_agg_to_flush_ = 0;
+      is_passing_through = false;
+    }
   }
 
   IncrementNumRowsReturned(row_batch->num_rows());
   COUNTER_SET(rows_returned_counter_, rows_returned());
+
+  if (!needs_flush() && is_passing_through && child_batch_processed_ && !child_eos_
+      && !(*eos)) {
+    for (auto& agg : aggs_) {
+      if (agg->GetNumGroupingExprs() > 0 && agg->NeedsFlush()) {
+        // If we are flushing, we must ensure that all flushing aggregators have been
+        // fully processed.
+        RETURN_IF_ERROR(agg->InputDone());
+        num_agg_to_flush_++;
+      }
+    }
+    if (needs_flush()) {
+      VLOG_QUERY << label() << " num_agg_to_flush_=" << num_agg_to_flush_
+                 << ", child_fully_ingested=" << child_fully_ingested()
+                 << ", eos=" << *eos << ", returned_rows=" << rows_returned()
+                 << ", prev_rows_returned=" << prev_rows_returned;
+    }
+  }
   return Status::OK();
 }
 

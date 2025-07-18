@@ -164,11 +164,13 @@ Status GroupingAggregator::Prepare(RuntimeState* state) {
   partitions_created_ = ADD_COUNTER(runtime_profile(), "PartitionsCreated", TUnit::UNIT);
   largest_partition_percent_ =
       runtime_profile()->AddHighWaterMarkCounter("LargestPartitionPercent", TUnit::UNIT);
+  num_agg_reset_ = ADD_COUNTER(runtime_profile(), "NumReset", TUnit::UNIT);
   if (is_streaming_preagg_) {
     runtime_profile()->AppendExecOption("Streaming Preaggregation");
     streaming_timer_ = ADD_TIMER(runtime_profile(), "StreamingTime");
     num_passthrough_rows_ =
         ADD_COUNTER(runtime_profile(), "RowsPassedThrough", TUnit::UNIT);
+    num_flushed_rows_ = ADD_COUNTER(runtime_profile(), "RowsFlushed", TUnit::UNIT);
     preagg_estimated_reduction_ =
         ADD_COUNTER(runtime_profile(), "ReductionFactorEstimate", TUnit::DOUBLE_VALUE);
     preagg_streaming_ht_min_reduction_ = ADD_COUNTER(
@@ -265,7 +267,11 @@ Status GroupingAggregator::Open(RuntimeState* state) {
 Status GroupingAggregator::GetNext(RuntimeState* state, RowBatch* row_batch, bool* eos) {
   RETURN_IF_ERROR(QueryMaintenance(state));
   if (!partition_eos_) {
+    int64_t num_row_batch_begin = row_batch->num_rows();
     RETURN_IF_ERROR(GetRowsFromPartition(state, row_batch));
+    if (is_streaming_preagg_) {
+      COUNTER_ADD(num_flushed_rows_, (row_batch->num_rows() - num_row_batch_begin));
+    }
   }
   *eos = partition_eos_;
   return Status::OK();
@@ -363,10 +369,11 @@ bool GroupingAggregator::ShouldExpandPreaggHashTables() const {
   }
 
   // Compare the number of rows in the hash table with the number of input rows that
-  // were aggregated into it. Exclude passed through rows from this calculation since
-  // they were not in hash tables.
-  const int64_t aggregated_input_rows = num_input_rows_ - num_rows_returned_;
-  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
+  // were aggregated into it. Exclude passed through / flushed rows from this calculation
+  // since they were not in hash tables.
+  const int64_t aggregated_input_rows = num_input_rows_ - num_input_rows_processed_;
+  const int64_t expected_input_rows =
+      estimated_input_cardinality_ - num_input_rows_processed_;
   double current_reduction = static_cast<double>(aggregated_input_rows) / ht_rows;
 
   // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
@@ -421,6 +428,24 @@ void GroupingAggregator::CleanupHashTbl(
 
 Status GroupingAggregator::Reset(RuntimeState* state, RowBatch* row_batch) {
   DCHECK(!is_streaming_preagg_) << "Cannot reset preaggregation";
+  return ResetInternal(state, row_batch);
+  ;
+}
+
+Status GroupingAggregator::ResetAndReopen(RuntimeState* state, RowBatch* row_batch) {
+  DCHECK(is_streaming_preagg_) << "ResetAndReopen only valid for preaggregation";
+  DCHECK(hash_partitions_.empty()) << "InputDone must be called before ResetAndReopen";
+
+  RETURN_IF_ERROR(ResetInternal(state, row_batch));
+  RETURN_IF_ERROR(Open(state));
+
+  num_input_rows_processed_ = num_input_rows_;
+  num_input_rows_since_reset_ = 0;
+  return Status::OK();
+}
+
+Status GroupingAggregator::ResetInternal(RuntimeState* state, RowBatch* row_batch) {
+  needs_flush_ = false;
   partition_eos_ = false;
   streaming_idx_ = 0;
   // Reset the HT and the partitions for this grouping agg.
@@ -431,6 +456,7 @@ Status GroupingAggregator::Reset(RuntimeState* state, RowBatch* row_batch) {
         row_batch, RowBatch::FlushMode::FLUSH_RESOURCES);
   }
   ClosePartitions();
+  COUNTER_ADD(num_agg_reset_, 1);
   return Status::OK();
 }
 
@@ -458,6 +484,7 @@ Status GroupingAggregator::AddBatch(RuntimeState* state, RowBatch* batch) {
   SCOPED_TIMER(build_timer_);
   RETURN_IF_ERROR(QueryMaintenance(state));
   num_input_rows_ += batch->num_rows();
+  num_input_rows_since_reset_ += batch->num_rows();
 
   TPrefetchMode::type prefetch_mode = state->query_options().prefetch_mode;
   GroupingAggregatorConfig::AddBatchImplFn add_batch_impl_fn = add_batch_impl_fn_.load();
@@ -475,21 +502,30 @@ Status GroupingAggregator::AddBatchStreaming(
   SCOPED_TIMER(streaming_timer_);
   RETURN_IF_ERROR(QueryMaintenance(state));
   num_input_rows_ += child_batch->num_rows();
+  num_input_rows_since_reset_ += child_batch->num_rows();
 
   int remaining_capacity[PARTITION_FANOUT];
   bool ht_needs_expansion = false;
+  int64_t curr_total_ht_size = 0;
   for (int i = 0; i < PARTITION_FANOUT; ++i) {
     HashTable* hash_tbl = GetHashTable(i);
     remaining_capacity[i] = hash_tbl->NumInsertsBeforeResize();
     ht_needs_expansion |= remaining_capacity[i] < child_batch->num_rows();
+    curr_total_ht_size += hash_tbl->size();
   }
+
+  bool has_reset = num_agg_reset_->value() > 0;
+  bool num_reset_exceeded = state_->query_options().preagg_max_group_reset >= 0
+      && num_agg_reset_->value() >= state_->query_options().preagg_max_group_reset;
 
   // Stop expanding hash tables if we're not reducing the input sufficiently. As our
   // hash tables expand out of each level of cache hierarchy, every hash table lookup
   // will take longer. We also may not be able to expand hash tables because of memory
   // pressure. In this case HashTable::CheckAndResize() will fail. In either case we
   // should always use the remaining space in the hash table to avoid wasting memory.
-  if (ht_needs_expansion && ShouldExpandPreaggHashTables()) {
+  // Also stop expanding hash table if this aggregator has reach its maximum reset.
+  bool should_expand = ShouldExpandPreaggHashTables();
+  if (ht_needs_expansion && should_expand && !(has_reset && num_reset_exceeded)) {
     for (int i = 0; i < PARTITION_FANOUT; ++i) {
       HashTable* ht = GetHashTable(i);
       if (remaining_capacity[i] < child_batch->num_rows()) {
@@ -517,13 +553,21 @@ Status GroupingAggregator::AddBatchStreaming(
   }
   *eos = (streaming_idx_ == 0);
   DCHECK_GE(out_batch->num_rows(), num_row_out_batch_old);
-  num_rows_returned_ += out_batch->num_rows() - num_row_out_batch_old;
-  COUNTER_SET(num_passthrough_rows_, num_rows_returned_);
+  int64_t num_rows_out_delta = out_batch->num_rows() - num_row_out_batch_old;
+  num_rows_returned_ += num_rows_out_delta;
+  num_input_rows_processed_ += num_rows_out_delta;
+  COUNTER_ADD(num_passthrough_rows_, num_rows_out_delta);
+  needs_flush_ |= (!should_expand && !num_reset_exceeded && num_rows_out_delta > 0);
   return Status::OK();
 }
 
 Status GroupingAggregator::InputDone() {
-  return MoveHashPartitions(num_input_rows_);
+  if (num_agg_reset_->value() > 0) {
+    DCHECK_GE(num_input_rows_, num_input_rows_since_reset_);
+  } else {
+    DCHECK_EQ(num_input_rows_, num_input_rows_since_reset_);
+  }
+  return MoveHashPartitions(num_input_rows_since_reset_);
 }
 
 Tuple* GroupingAggregator::ConstructIntermediateTuple(

@@ -97,6 +97,11 @@ class NonGroupingAggregator : public Aggregator {
   virtual std::string DebugString(int indentation_level = 0) const override;
   virtual void DebugString(int indentation_level, std::stringstream* out) const override;
 
+  virtual bool NeedsFlush() const override {
+    // NonGroupingAggregator always returns a single row, so it doesn't need to flush.
+    return false;
+  }
+
   virtual int64_t GetNumKeys() const override { return 1; }
 
  private:

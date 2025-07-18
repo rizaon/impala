@@ -170,6 +170,8 @@ class Aggregator {
   virtual std::string DebugString(int indentation_level = 0) const = 0;
   virtual void DebugString(int indentation_level, std::stringstream* out) const = 0;
 
+  virtual bool NeedsFlush() const = 0;
+
   static const char* LLVM_CLASS_NAME;
 
   // The number of unique values that have been aggregated

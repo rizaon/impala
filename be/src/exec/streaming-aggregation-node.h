@@ -71,6 +71,9 @@ class StreamingAggregationNode : public AggregationNodeBase {
   /// True if no more rows to process from child.
   bool child_eos_ = false;
 
+  /// Num aggregators to flush.
+  int num_agg_to_flush_ = 0;
+
   /// If 'replicate_input_' is true, the index in 'aggs_' of the next Aggregator to pass
   /// 'child_batch_' into.
   int32_t replicate_agg_idx_ = 0;
@@ -82,6 +85,12 @@ class StreamingAggregationNode : public AggregationNodeBase {
   /// hash table and passes through other rows converted into the intermediate
   /// tuple format. Sets 'child_eos_' once all rows from child have been returned.
   Status GetRowsStreaming(RuntimeState* state, RowBatch* row_batch) WARN_UNUSED_RESULT;
+
+  inline bool child_fully_ingested() const {
+    return child_eos_ && child_batch_processed_;
+  }
+
+  inline bool needs_flush() const { return num_agg_to_flush_ > 0; }
 };
 } // namespace impala
 
