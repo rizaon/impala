@@ -78,9 +78,10 @@ import com.google.common.base.Preconditions;
 public abstract class Catalog implements AutoCloseable {
   // Initial catalog version and ID.
   public final static long INITIAL_CATALOG_VERSION = 0L;
-  // Catalog version that signal that the first metadata reset has begun.
-  // This should match MIN_CATALOG_VERSION_TO_ACCEPT_REQUEST.
-  public final static long CATALOG_VERSION_AFTER_FIRST_RESET = 100L;
+  // Catalog version increment that applies on each global metadata reset.
+  // This should match with CATALOG_VERSION_INCREMENT_ON_RESET constant in
+  // catalog-server.cc.
+  public final static long CATALOG_VERSION_INCREMENT_ON_RESET = 100L;
   public static final TUniqueId INITIAL_CATALOG_SERVICE_ID = new TUniqueId(0L, 0L);
   public static final String DEFAULT_DB = "default";
 

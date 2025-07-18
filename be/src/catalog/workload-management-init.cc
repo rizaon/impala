@@ -504,17 +504,17 @@ inline bool CatalogServer::IsCatalogInitialized() {
   // incremented on the active catalogd.
   // The second expression evaluates to true when the the standby catalogd determines that
   // it is the standby.
-  return last_sent_catalog_version_ > 0 || (is_ha_determined_ && !is_active_.Load());
+  return last_sent_catalog_version_ > 0 || (is_ha_determined_ && !is_active_);
 } // CatalogServer::IsCatalogInitialized
 
-bool CatalogServer::WaitForCatalogReady() {
+bool CatalogServer::WaitCatalogReadinessForWorkloadManagement() {
   while (!IsCatalogInitialized()) {
     LOG(INFO) << "Waiting for first catalog update";
     SleepForMs(WM_INIT_CHECK_SLEEP_MS);
   }
 
-  return IsActive();
-} // function CatalogServer::WaitForCatalogReady
+  return is_active_;
+} // function CatalogServer::WaitCatalogReadinessForWorkloadManagement
 
 Status CatalogServer::InitWorkloadManagement() {
   DCHECK_NE(nullptr, thrift_iface_.get());

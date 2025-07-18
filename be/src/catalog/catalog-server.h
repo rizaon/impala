@@ -141,7 +141,8 @@ class CatalogServer {
   ///
   /// Returns `true` or `false` indicating if this catalogd is the active catalogd.
   /// If catalog HA is not enabled, returns `true`.
-  bool WaitForCatalogReady();
+  /// TODO: Unify this with min_catalog_version_to_serve_.
+  bool WaitCatalogReadinessForWorkloadManagement();
 
   // Initializes workload management by creating or upgrading the necessary database and
   // tables. Does not check if the current catalogd is active or if workload management is
@@ -219,13 +220,24 @@ class CatalogServer {
   /// Thread that periodically wakes up and refreshes certain Catalog metrics.
   std::unique_ptr<Thread> catalog_metrics_refresh_thread_;
 
-  /// Protects is_active_, active_catalogd_version_checker_,
-  /// catalog_update_cv_, pending_topic_updates_, catalog_objects_to/from_version_,
-  /// last_sent_catalog_version, and is_ha_determined_.
+  /// Catalog version that signal that the initial metadata reset has begun.
+  /// Set to current catalog version + Catalog.CATALOG_VERSION_AFTER_FIRST_RESET (100),
+  /// on each call to  of MarkPendingMetadataReset.
+  AtomicInt64 min_catalog_version_to_serve_;
+
+  /// Protect metadata state change during HA transition.
+  /// If operation also need to obtain catalog_lock_, this lock must be obtained first.
+  std::mutex ha_transition_lock_;
+
+  /// Protects several field members below.
   std::mutex catalog_lock_;
 
+  /// -----------------------------------------------------------------------------
+  /// BEGIN: Members that must be protected by catalog_lock_.
+  /// -----------------------------------------------------------------------------
+
   /// Set to true if this catalog instance is active.
-  AtomicBool is_active_;
+  volatile bool is_active_;
 
   /// Set to true after active catalog has been determined. Will be true if catalog ha
   /// is not enabled.
@@ -258,12 +270,16 @@ class CatalogServer {
 
   /// Mark if the first metadata reset has been triggered.
   /// Protected by the catalog_lock_.
-  bool triggered_first_reset_;
+  volatile bool triggered_first_reset_;
 
   /// The max catalog version in pending_topic_updates_. Set by the
   /// catalog_update_gathering_thread_ and protected by catalog_lock_.
   /// Value -1 means catalog_update_gathering_thread_ has not set it.
   int64_t catalog_objects_max_version_;
+
+  /// -----------------------------------------------------------------------------
+  /// END: Members that must be protected by catalog_lock_.
+  /// -----------------------------------------------------------------------------
 
   /// Called during each Statestore heartbeat and is responsible for updating the current
   /// set of catalog objects in the IMPALA_CATALOG_TOPIC. Responds to each heartbeat with a
@@ -295,8 +311,21 @@ class CatalogServer {
   /// catalog_lock_.
   void WaitUntilHmsEventsSynced(const std::unique_lock<std::mutex>& lock);
 
+  /// Request pending full metadata reset.
+  /// The actual reset will be performed by the TriggerResetMetadata thread later.
+  /// Set min_catalog_version_to_serve_ to the current catalog version +
+  /// Catalog.CATALOG_VERSION_AFTER_FIRST_RESET (100) to delay AcceptRequest()
+  /// until the reset operation begin in JVM.
+  void MarkPendingMetadataReset(const std::unique_lock<std::mutex>& lock);
+
+  /// If enabled, wait until HA transition is fully complete.
+  /// This include having the latest catalog state or the initial metadata reset has
+  /// started (but not necessarily completed, in which the request will proceed to wait
+  /// inside the Catalog JVM).
+  Status WaitHATransition(const std::string& server_address);
+
   /// Returns the current active status of the catalogd.
-  bool IsActive();
+  inline bool IsActive() { return is_active_; }
 
   /// Executed by the catalog_update_gathering_thread_. Calls into JniCatalog
   /// to get the latest set of catalog objects that exist, along with some metadata on

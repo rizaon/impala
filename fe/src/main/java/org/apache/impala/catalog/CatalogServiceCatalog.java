@@ -2383,7 +2383,7 @@ public class CatalogServiceCatalog extends Catalog {
   }
 
   public long reset(EventSequence catalogTimeline) throws CatalogException {
-    return reset(catalogTimeline, false);
+    return reset(catalogTimeline, false, false);
   }
 
   /**
@@ -2392,10 +2392,11 @@ public class CatalogServiceCatalog extends Catalog {
    * requesting impalad will use that version to determine when the
    * effects of reset have been applied to its local catalog cache.
    */
-  public long reset(EventSequence catalogTimeline, boolean isSyncDdl)
-      throws CatalogException {
+  public long reset(EventSequence catalogTimeline, boolean isSyncDdl,
+      boolean isCatalogServerRequest) throws CatalogException {
     long startVersion = getCatalogVersion();
-    LOG.info("Invalidating all metadata. Version: " + startVersion);
+    LOG.info("Invalidating all metadata. Version: " + startVersion
+        + ", IsCatalogServerRequest: " + isCatalogServerRequest);
     Stopwatch resetTimer = Stopwatch.createStarted();
     Stopwatch unlockedTimer = Stopwatch.createStarted();
     // First update the policy metadata.
@@ -2440,13 +2441,12 @@ public class CatalogServiceCatalog extends Catalog {
       catalogTimeline.markEvent(GOT_CATALOG_VERSION_WRITE_LOCK);
       // In case of an empty new catalog, the version should still change to reflect the
       // reset operation itself and to unblock impalads by making the catalog version >
-      // INITIAL_CATALOG_VERSION. See Frontend.waitForCatalog()
-      if (catalogVersion_ < Catalog.CATALOG_VERSION_AFTER_FIRST_RESET) {
-        catalogVersion_ = Catalog.CATALOG_VERSION_AFTER_FIRST_RESET;
-        LOG.info("First reset initiated. Version: " + catalogVersion_);
-      } else {
-        ++catalogVersion_;
-      }
+      // INITIAL_CATALOG_VERSION. See Frontend.waitForCatalog().
+      // If this is a request from catalog-server.cc, incement catalogVersion_ by
+      // CATALOG_VERSION_INCREMENT_ON_RESET to help coordination with code in
+      // catalog-server.cc (see CatalogServer::MarkPendingMetadataReset()). Otherwise,
+      // increment catalogVersion_ by 1.
+      catalogVersion_ += isCatalogServerRequest ? Catalog.CATALOG_VERSION_INCREMENT_ON_RESET : 1;
 
       // Update data source, db and table metadata.
       // First, refresh DataSource objects from HMS and assign new versions.
