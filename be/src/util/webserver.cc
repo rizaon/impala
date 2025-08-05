@@ -27,6 +27,7 @@
 #include <boost/mem_fn.hpp>
 #include <boost/thread/shared_mutex.hpp>
 #include <gssapi/gssapi_krb5.h>
+#include <mutex>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
@@ -365,6 +366,7 @@ Webserver::Webserver(const string& interface, const int port, MetricGroup* metri
 }
 
 Webserver::~Webserver() {
+  lock_guard<mutex> l(compressed_buffer_mem_tracker_lock_);
   if (compressed_buffer_mem_tracker_.get() != nullptr) {
     compressed_buffer_mem_tracker_->Close();
   }
@@ -567,6 +569,7 @@ Status Webserver::Start() {
   // TODO: IMPALA-14179
   // Track memory usage of other template generated webpages in the future
 
+  lock_guard<mutex> l(compressed_buffer_mem_tracker_lock_);
   // Initialize compressed_buffer_mem_tracker_, if not initialized
   if (compressed_buffer_mem_tracker_.get() == nullptr) {
     MemTracker* process_mem_tracker = nullptr;
