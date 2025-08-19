@@ -777,7 +777,7 @@ struct TQueryOptions {
   191: optional double mem_estimate_scale_for_spilling_operator = 0.0
 
   // See comment in ImpalaService.thrift
-  192: optional bool use_calcite_planner = false;
+  192: optional bool use_calcite_planner = true
 
   // See comment in ImpalaService.thrift
   193: optional CatalogObjects.TJsonBinaryFormat json_binary_format =
