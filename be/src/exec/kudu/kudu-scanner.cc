@@ -33,9 +33,11 @@
 #include "exprs/scalar-expr.h"
 #include "exprs/slot-ref.h"
 #include "gutil/strings/substitute.h"
+#include "kudu/util/bitmap.h"
 #include "kudu/util/block_bloom_filter.h"
 #include "kudu/util/logging.h"
 #include "kudu/util/slice.h"
+#include "runtime/collection-value.h"
 #include "runtime/mem-pool.h"
 #include "runtime/mem-tracker.h"
 #include "runtime/raw-value.h"
@@ -52,6 +54,7 @@
 #include "util/periodic-counter-updater.h"
 #include "util/runtime-profile-counters.h"
 
+using kudu::client::KuduArrayCellView;
 using kudu::client::KuduClient;
 using kudu::client::KuduPredicate;
 using kudu::client::KuduScanBatch;
@@ -370,6 +373,133 @@ Status KuduScanner::HandleEmptyProjection(RowBatch* row_batch) {
   return Status::OK();
 }
 
+// Kudu tuples containing TIMESTAMP columns (UNIXTIME_MICROS in Kudu, stored as an
+// int64) have 8 bytes of padding following the timestamp. Because this padding is
+// provided, Impala can convert these unixtime values to Impala's TimestampValue
+// format in place and copy the rows to Impala row batches.
+// TODO: avoid mem copies with a Kudu mem 'release' mechanism, attaching mem to the
+// batch.
+// TODO: consider codegen for this per-timestamp col fixup
+Status KuduScanner::ConvertTimestampFromKudu(
+    Tuple* kudu_tuple, const SlotDescriptor* slot) {
+  DCHECK(slot->type().type == TYPE_TIMESTAMP);
+  if (slot->is_nullable() && kudu_tuple->IsNull(slot->null_indicator_offset())) {
+    return Status::OK();
+  }
+  int64_t ts_micros =
+      *reinterpret_cast<int64_t*>(kudu_tuple->GetSlot(slot->tuple_offset()));
+
+  TimestampValue tv;
+  if (state_->query_options().convert_kudu_utc_timestamps) {
+    tv = TimestampValue::FromUnixTimeMicros(ts_micros, state_->local_time_zone());
+  } else {
+    tv = TimestampValue::UtcFromUnixTimeMicros(ts_micros);
+  }
+
+  if (tv.HasDateAndTime()) {
+    RawValue::Write(&tv, kudu_tuple, slot, nullptr);
+    return Status::OK();
+  } else {
+    kudu_tuple->SetNull(slot->null_indicator_offset());
+    return Status(ErrorMsg::Init(TErrorCode::KUDU_TIMESTAMP_OUT_OF_RANGE,
+        scan_node_->table_desc()->table_name(),
+        scanner_->GetKuduTable()->schema().Column(slot->col_pos()).name()));
+  }
+}
+
+// Kudu tuples containing VARCHAR columns use characters instead of bytes to limit
+// the length. In the case of ASCII values there is no difference. However, if
+// multi-byte characters are written to Kudu the length could be longer than allowed.
+// This checks the actual length and truncates the value length if it is too long.
+// TODO(IMPALA-5675): Remove this when Impala supports UTF-8 character VARCHAR length.
+Status KuduScanner::ConvertVarcharFromKudu(
+    Tuple* kudu_tuple, const SlotDescriptor* slot) {
+  DCHECK(slot->type().type == TYPE_VARCHAR);
+  if (slot->is_nullable() && kudu_tuple->IsNull(slot->null_indicator_offset())) {
+    return Status::OK();
+  }
+  StringValue* sv =
+      reinterpret_cast<StringValue*>(kudu_tuple->GetSlot(slot->tuple_offset()));
+  int src_len = sv->Len();
+  int dst_len = slot->type().len;
+  if (src_len > dst_len) {
+    sv->SetLen(dst_len);
+  }
+  return Status::OK();
+}
+
+Status KuduScanner::ConvertArrayFromKudu(
+    Tuple* kudu_tuple, const SlotDescriptor* slot, MemPool* item_tuple_mem_pool) {
+  // Check the slot type.
+  DCHECK(slot->type().IsArrayType());
+  DCHECK_NE(slot->children_tuple_descriptor(), nullptr);
+  DCHECK_EQ(slot->children_tuple_descriptor()->slots().size(), 1);
+  SlotDescriptor* item_slot = slot->children_tuple_descriptor()->slots().front();
+  DCHECK_NE(item_slot, nullptr);
+  DCHECK(!item_slot->type().IsComplexType());
+  // Check the Kudu column type.
+  const auto& kudu_column = scanner_->GetKuduTable()->schema().Column(slot->col_pos());
+  if (UNLIKELY(kudu_column.nested_type() == nullptr
+          || kudu_column.nested_type()->array() == nullptr)) {
+    return Status(Substitute("Kudu table '$0' column '$1' is not an ARRAY column.",
+        scan_node_->table_desc()->table_name(), kudu_column.name()));
+  }
+  auto kudu_elem_type = kudu_column.nested_type()->array()->type();
+  DCHECK_EQ(KuduDataTypeToColumnType(kudu_elem_type, kudu_column.type_attributes()),
+      item_slot->type());
+  // Check if the slot is NULL.
+  if (slot->is_nullable() && kudu_tuple->IsNull(slot->null_indicator_offset())) {
+    return Status::OK();
+  }
+  // The slot is not NULL. Get the array value.
+  auto slice = reinterpret_cast<kudu::Slice*>(kudu_tuple->GetSlot(slot->tuple_offset()));
+  KuduArrayCellView kudu_array{slice->data(), slice->size()};
+  RETURN_IF_ERROR(FromKuduStatus(kudu_array.Init()));
+  if (UNLIKELY(kudu_array.elem_num() > INT_MAX)) {
+    return Status(
+        Substitute("Kudu array length in table '$0' column '$1' is out of limit.",
+            scan_node_->table_desc()->table_name(), kudu_column.name()));
+  }
+  CollectionValue result;
+  result.num_tuples = kudu_array.elem_num();
+  // The data pointer is valid only when the array is not empty.
+  if (kudu_array.elem_num() > 0) {
+    int64_t total_tuple_byte_size =
+        slot->children_tuple_descriptor()->byte_size() * kudu_array.elem_num();
+    result.ptr = item_tuple_mem_pool->Allocate(total_tuple_byte_size);
+    if (result.ptr == nullptr) {
+      return Status(Substitute(
+          "Could not allocate memory when reading Kudu ARRAY in table '$0' column '$1'",
+          scan_node_->table_desc()->table_name(), kudu_column.name()));
+    }
+
+    memset(result.ptr, 0, total_tuple_byte_size);
+    auto kudu_array_data = reinterpret_cast<const uint8_t*>(
+        kudu_array.data(kudu_elem_type, kudu_column.type_attributes()));
+    DCHECK_NE(kudu_array_data, nullptr);
+    auto kudu_elem_byte_size = GetKuduArrayElementSize(item_slot);
+    for (int i = 0; i < result.num_tuples; ++i) {
+      Tuple* item_tuple = reinterpret_cast<Tuple*>(
+          result.ptr + i * slot->children_tuple_descriptor()->byte_size());
+      if (kudu::BitmapTest(kudu_array.not_null_bitmap(), i)) {
+        memcpy(
+            item_tuple, kudu_array_data + i * kudu_elem_byte_size, kudu_elem_byte_size);
+        if (item_slot->type().type == TYPE_TIMESTAMP) {
+          RETURN_IF_ERROR(ConvertTimestampFromKudu(item_tuple, item_slot));
+        } else if (item_slot->type().type == TYPE_VARCHAR) {
+          RETURN_IF_ERROR(ConvertVarcharFromKudu(item_tuple, item_slot));
+        }
+      } else {
+        item_tuple->SetNull(item_slot->null_indicator_offset());
+      }
+    }
+  }
+  // Copy the result CollectionValue to the slot.
+  slice->clear();
+  *reinterpret_cast<CollectionValue*>(slice) = result;
+  return Status::OK();
+}
+
 Status KuduScanner::DecodeRowsIntoRowBatch(RowBatch* row_batch, Tuple** tuple_mem) {
   SCOPED_TIMER(scan_node_->materialize_tuple_timer());
   // Short-circuit for empty projection cases.
@@ -388,55 +518,25 @@ Status KuduScanner::DecodeRowsIntoRowBatch(RowBatch* row_batch, Tuple** tuple_me
             + (krow_idx * scan_node_->row_desc()->GetRowSize())));
     ++cur_kudu_batch_num_read_;
 
-    // Kudu tuples containing TIMESTAMP columns (UNIXTIME_MICROS in Kudu, stored as an
-    // int64) have 8 bytes of padding following the timestamp. Because this padding is
-    // provided, Impala can convert these unixtime values to Impala's TimestampValue
-    // format in place and copy the rows to Impala row batches.
-    // TODO: avoid mem copies with a Kudu mem 'release' mechanism, attaching mem to the
-    // batch.
-    // TODO: consider codegen for this per-timestamp col fixup
     for (const SlotDescriptor* slot : timestamp_slots_) {
-      DCHECK(slot->type().type == TYPE_TIMESTAMP);
-      if (slot->is_nullable() && kudu_tuple->IsNull(slot->null_indicator_offset())) {
-        continue;
-      }
-      int64_t ts_micros = *reinterpret_cast<int64_t*>(
-          kudu_tuple->GetSlot(slot->tuple_offset()));
-
-      TimestampValue tv;
-      if (state_->query_options().convert_kudu_utc_timestamps) {
-        tv = TimestampValue::FromUnixTimeMicros(ts_micros, state_->local_time_zone());
-      } else {
-        tv = TimestampValue::UtcFromUnixTimeMicros(ts_micros);
-      }
-
-      if (tv.HasDateAndTime()) {
-        RawValue::Write(&tv, kudu_tuple, slot, nullptr);
-      } else {
-        kudu_tuple->SetNull(slot->null_indicator_offset());
-        RETURN_IF_ERROR(state_->LogOrReturnError(
-            ErrorMsg::Init(TErrorCode::KUDU_TIMESTAMP_OUT_OF_RANGE,
-              scan_node_->table_desc()->table_name(),
-              scanner_->GetKuduTable()->schema().Column(slot->col_pos()).name())));
+      Status status = ConvertTimestampFromKudu(kudu_tuple, slot);
+      if (!status.ok()) {
+        RETURN_IF_ERROR(state_->LogOrReturnError(status.msg()));
       }
     }
 
-    // Kudu tuples containing VARCHAR columns use characters instead of bytes to limit
-    // the length. In the case of ASCII values there is no difference. However, if
-    // multi-byte characters are written to Kudu the length could be longer than allowed.
-    // This checks the actual length and truncates the value length if it is too long.
-    // TODO(IMPALA-5675): Remove this when Impala supports UTF-8 character VARCHAR length.
     for (const SlotDescriptor* slot : varchar_slots_) {
-      DCHECK(slot->type().type == TYPE_VARCHAR);
-      if (slot->is_nullable() && kudu_tuple->IsNull(slot->null_indicator_offset())) {
-        continue;
+      Status status = ConvertVarcharFromKudu(kudu_tuple, slot);
+      if (!status.ok()) {
+        RETURN_IF_ERROR(state_->LogOrReturnError(status.msg()));
       }
-      StringValue* sv = reinterpret_cast<StringValue*>(
-          kudu_tuple->GetSlot(slot->tuple_offset()));
-      int src_len = sv->Len();
-      int dst_len = slot->type().len;
-      if (src_len > dst_len) {
-        sv->SetLen(dst_len);
+    }
+
+    for (const SlotDescriptor* slot : scan_node_->tuple_desc()->collection_slots()) {
+      Status status =
+          ConvertArrayFromKudu(kudu_tuple, slot, row_batch->tuple_data_pool());
+      if (!status.ok()) {
+        RETURN_IF_ERROR(state_->LogOrReturnError(status.msg()));
       }
     }
 

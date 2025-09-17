@@ -144,6 +144,20 @@ class KuduScanner {
   /// Varchar slots in the tuple descriptor of the scan node. Used to resize Kudu
   /// VARCHAR values inline.
   vector<const SlotDescriptor*> varchar_slots_;
+
+  // Converts the UNIXTIME_MICROS value in the 'slot' of the 'kudu_tuple' to a
+  // TimestampValue in place.
+  Status ConvertTimestampFromKudu(Tuple* kudu_tuple, const SlotDescriptor* slot);
+
+  // Converts the VARCHAR value in the 'slot' of the 'kudu_table' to a StringValue
+  // with length limit in place.
+  Status ConvertVarcharFromKudu(Tuple* kudu_tuple, const SlotDescriptor* slot);
+
+  // Converts the ARRAY value in the 'slot' of the 'kudu_tuple' to a CollectionValue in
+  // place, using the 'item_tuple_mem_pool' to allocate memory for the item tuples of the
+  // array.
+  Status ConvertArrayFromKudu(
+      Tuple* kudu_tuple, const SlotDescriptor* slot, MemPool* item_tuple_mem_pool);
 };
 
 } /// namespace impala

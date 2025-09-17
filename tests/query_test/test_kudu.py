@@ -36,8 +36,10 @@ from kudu.client import Partitioning
 from kudu.util import to_unixtime_micros
 import logging
 import pytest
+import os
 import random
 import re
+import subprocess
 import textwrap
 import threading
 import time
@@ -1844,3 +1846,159 @@ class TestKuduInsertWithBufferedTupleDesc(KuduTestSuite):
     except Exception as e:
       # Not expect to throw exception like "IllegalStateException: null"
       assert False, str(e)
+
+
+class TestKuduArray(KuduTestSuite):
+  """
+  Tests Kudu 1-D array suppport.
+  """
+
+  def _get_name_from_type(self, data_type):
+    return re.split("[(<)]", data_type)[0]
+
+  def test_unsupported_types(self, unique_database):
+    # ARRAY of any complex type or 16-byte DECIMAL is not supported yet.
+    UNSUPPORTED_ITEM_TYPES = [
+        "ARRAY<INT>",
+        "MAP<INT,INT>",
+        "STRUCT<a:INT,b:INT>",
+        "DECIMAL(19,19)",
+    ]
+    sql = (
+        "CREATE TABLE {0}.test_kudu_array_{1} (id TINYINT PRIMARY KEY, a ARRAY<{2}>)"
+        "STORED AS KUDU"
+    )
+    for item_type in UNSUPPORTED_ITEM_TYPES:
+      exc = str(self.execute_query_expect_failure(self.client, sql.format(
+          unique_database, self._get_name_from_type(item_type), item_type)))
+      assert (
+          "AnalysisException: Cannot create table 'test_kudu_array_{0}': "
+          "Type ARRAY<{1}> is not supported in Kudu"
+      ).format(self._get_name_from_type(item_type), item_type) in exc
+
+  def _insert_arrays_into_kudu(self):
+    """Insert some rows into functional_kudu.kudu_array table."""
+    exec_path_pattern = os.environ["IMPALA_HOME"] + \
+        "/be/build/{0}/exec/kudu/kudu-array-inserter"
+    exec_path = exec_path_pattern.format("debug")
+    if not os.path.isfile(exec_path):
+      exec_path = exec_path_pattern.format("release")
+    subprocess.check_call([exec_path])
+
+  def _check_table_schema(self, unique_database, table_name, types):
+    result = self.execute_query("DESCRIBE {0}.{1}".format(unique_database, table_name))
+    assert ("id", "tinyint") == result.tuples()[0][:2]
+    for i in range(1, len(result.tuples())):
+      (col_name, col_type) = result.tuples()[i][:2]
+      assert (col_type == "array<{0}>".format(types[i - 1].lower())
+              and col_name == "array_" + self._get_name_from_type(types[i - 1]).lower())
+
+  def _check_table_data(self, unique_database, table_name, types, query_options):
+    # See be/src/exec/kudu/kudu-array-inserter.cc for the test data
+    EXPECTED_COLUMNS = {
+        "INT": [
+            None,
+            '[-2147483648,-1,2147483647]',
+            '[]',
+            '[null,-1,2147483647]',
+            '[-2147483648,null,2147483647]',
+            '[-2147483648,-1,null]'],
+        "TIMESTAMP": [
+            None,
+            ('["1400-01-01 00:00:00",'
+             '"1969-12-31 23:59:59.999999000",'
+             '"9999-12-31 23:59:59.999999000"]'),
+            '[]',
+            '[null,"1969-12-31 23:59:59.999999000","9999-12-31 23:59:59.999999000"]',
+            '["1400-01-01 00:00:00",null,"9999-12-31 23:59:59.999999000"]',
+            '["1400-01-01 00:00:00","1969-12-31 23:59:59.999999000",null]',
+        ],
+        "VARCHAR(1)": [
+            None,
+            b'["\xce","\xcf","\xce"]',
+            '[]',
+            b'[null,"\xcf","\xce"]',
+            b'["\xce",null,"\xce"]',
+            b'["\xce","\xcf",null]',
+        ],
+        "DECIMAL(18,18)": [
+            None,
+            ('[-0.999999999999999999,-0.000000000000000001,0.999999999999999999]'),
+            '[]',
+            ('[null,-0.000000000000000001,0.999999999999999999]'),
+            ('[-0.999999999999999999,null,0.999999999999999999]'),
+            ('[-0.999999999999999999,-0.000000000000000001,null]'),
+        ],
+    }
+    column_names = ", ".join([
+        "array_{0}".format(self._get_name_from_type(item_type))
+        for item_type in types
+    ])
+    result = self.execute_query("SELECT id, {0} FROM {1}.{2}".format(
+        column_names, unique_database, table_name), query_options=query_options)
+    sorted_tuples = sorted(result.tuples())
+    expected_tuples = list(zip(
+        range(len(sorted_tuples)),
+        *[EXPECTED_COLUMNS[item_type] for item_type in types]
+    ))
+    for i in range(len(sorted_tuples)):
+      assert sorted_tuples[i] == expected_tuples[i]
+
+  def test_supported_types(self, vector):
+    """
+    Test array column support for kudu against existing functional_kudu.kudu_array
+    and new external table functional_kudu.kudu_array_external.
+    """
+    SUPPORTED_ITEM_TYPES = [
+        "INT",
+        "TIMESTAMP",
+        "VARCHAR(1)",
+        "DECIMAL(18,18)",
+    ]
+    unique_database = "functional_kudu"
+    TEST_TABLE, TEST_EXTERNAL_TABLE = "kudu_array", "kudu_array_external"
+
+    try:
+      # Check existing functional_kudu.kudu_array
+      self._check_table_schema(unique_database, TEST_TABLE, SUPPORTED_ITEM_TYPES)
+
+      # Create external table functional_kudu.kudu_array_external pointing to the same
+      # table as functional_kudu.kudu_array and check the schema as well.
+      kudu_table_name = "impala::{0}.{1}".format(unique_database, TEST_TABLE)
+      self.execute_query("DROP TABLE IF EXISTS {0}.{1}".format(
+          unique_database, TEST_EXTERNAL_TABLE))
+      self.execute_query(create_external_kudu_query(
+          unique_database, TEST_EXTERNAL_TABLE, kudu_table_name))
+      self._check_table_schema(
+          unique_database, TEST_EXTERNAL_TABLE, SUPPORTED_ITEM_TYPES)
+
+      # Insert some rows using kudu-array-inserter and read the data back
+      # through both table.
+      self.execute_query("DELETE FROM {0}.{1}".format(unique_database, TEST_TABLE))
+      self._insert_arrays_into_kudu()
+      self._check_table_data(
+          unique_database,
+          TEST_TABLE,
+          SUPPORTED_ITEM_TYPES,
+          vector.get_value('exec_option'),
+      )
+      self._check_table_data(
+          unique_database,
+          TEST_EXTERNAL_TABLE,
+          SUPPORTED_ITEM_TYPES,
+          vector.get_value('exec_option'),
+      )
+
+      # TODO: Support referencing a Kudu collection column as a table.
+      sql = "SELECT pos, item FROM {0}.{1}.array_{2}"
+      for item_type in SUPPORTED_ITEM_TYPES:
+        exc = str(self.execute_query_expect_failure(self.client, sql.format(
+            unique_database, TEST_TABLE, self._get_name_from_type(item_type))))
+        assert (
+            "AnalysisException: "
+            "Referencing a Kudu collection column as a table is not supported."
+        ) in exc
+    finally:
+      self.execute_query("DELETE FROM {0}.{1}".format(unique_database, TEST_TABLE))
+      self.execute_query("DROP TABLE IF EXISTS {0}.{1}".format(
+          unique_database, TEST_EXTERNAL_TABLE))

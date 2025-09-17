@@ -28,6 +28,7 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.impala.catalog.FeKuduTable;
 import org.apache.impala.catalog.KuduColumn;
 import org.apache.impala.catalog.KuduTable;
+import org.apache.impala.catalog.ArrayType;
 import org.apache.impala.catalog.Table;
 import org.apache.impala.catalog.TableNotFoundException;
 import org.apache.impala.catalog.Type;
@@ -163,9 +164,20 @@ public class KuduCatalogOpExecutor {
       boolean isKeyUnique) throws ImpalaRuntimeException {
     Type type = Type.fromThrift(column.getColumnType());
     Preconditions.checkState(type != null);
+    // If the type is an ARRAY type, we need to
+    // 1. Create a ColumnSchemaBuilder for its item type first, and
+    // 2. Make it an ARRAY column by calling ColumnSchemaBuilder#array().
+    // Otherwise we need to create a ColumnSchemaBuilder for the type itself.
     org.apache.kudu.Type kuduType = KuduUtil.fromImpalaType(type);
-
+    if (kuduType == null) {
+      throw new ImpalaRuntimeException(String.format(
+          "Type %s is not supported in Kudu", type.toSql()));
+    }
     ColumnSchemaBuilder csb = new ColumnSchemaBuilder(column.getColumnName(), kuduType);
+    Type typeOrItemType = type;
+    if (type.isArrayType()) {
+      typeOrItemType = ((ArrayType)type).getItemType();
+    }
     if (isKey && !isKeyUnique) {
       csb.nonUniqueKey(true);
     } else {
@@ -183,7 +195,7 @@ public class KuduCatalogOpExecutor {
     }
     if (column.isSetDefault_value()) {
       csb.defaultValue(KuduUtil.getKuduDefaultValue(
-          column.getDefault_value(), type, column.getColumnName()));
+          column.getDefault_value(), typeOrItemType, column.getColumnName()));
     }
     if (column.isSetBlock_size()) csb.desiredBlockSize(column.getBlock_size());
     if (column.isSetEncoding()) {
@@ -192,16 +204,19 @@ public class KuduCatalogOpExecutor {
     if (column.isSetCompression()) {
       csb.compressionAlgorithm(KuduUtil.fromThrift(column.getCompression()));
     }
-    if (type.isDecimal()) {
-      csb.typeAttributes(
-          DecimalUtil.typeAttributes(type.getPrecision(), type.getDecimalDigits()));
+    if (typeOrItemType.isDecimal()) {
+      csb.typeAttributes(DecimalUtil.typeAttributes(
+          typeOrItemType.getPrecision(), typeOrItemType.getDecimalDigits()));
     }
-    if (kuduType == org.apache.kudu.Type.VARCHAR) {
+    if (typeOrItemType.isVarchar()) {
       csb.typeAttributes(
-          CharUtil.typeAttributes(type.getColumnSize()));
+          CharUtil.typeAttributes(typeOrItemType.getColumnSize()));
     }
     if (column.isSetComment() && !column.getComment().isEmpty()) {
       csb.comment(column.getComment());
+    }
+    if (type.isArrayType()) {
+      csb.array(true);
     }
     return csb.build();
   }
@@ -385,8 +400,7 @@ public class KuduCatalogOpExecutor {
               "Error loading Kudu table: Impala does not support column names that " +
               "differ only in casing '%s'", colSchema.getName()));
         }
-        Type type =
-            KuduUtil.toImpalaType(colSchema.getType(), colSchema.getTypeAttributes());
+        Type type = KuduUtil.toImpalaType(colSchema);
         String comment =
             !colSchema.getComment().isEmpty() ? colSchema.getComment() : null;
         cols.add(new FieldSchema(colSchema.getName(), type.toSql().toLowerCase(),

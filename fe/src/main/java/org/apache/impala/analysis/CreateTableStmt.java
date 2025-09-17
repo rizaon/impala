@@ -491,11 +491,10 @@ public class CreateTableStmt extends StatementBase implements SingleTableStmt {
 
     // Check column types are valid Kudu types
     for (ColumnDef col: getColumnDefs()) {
-      try {
-        KuduUtil.fromImpalaType(col.getType());
-      } catch (ImpalaRuntimeException e) {
+      if (KuduUtil.fromImpalaType(col.getType()) == null) {
         throw new AnalysisException(String.format(
-            "Cannot create table '%s': %s", getTbl(), e.getMessage()));
+            "Cannot create table '%s': Type %s is not supported in Kudu",
+            getTbl(), col.getType().toSql()));
       }
     }
     AnalysisUtils.throwIfNotNull(getTblProperties().get(KuduTable.KEY_KEY_COLUMNS),

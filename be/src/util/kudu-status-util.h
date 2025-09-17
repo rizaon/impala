@@ -38,6 +38,11 @@
     ASSERT_TRUE(_s.ok()) << "Error: " << _s.GetDetail();           \
   } while (0)
 
+#define KUDU_EXPECT_OK(status)                                     \
+  do {                                                             \
+    const impala::Status& _s = FromKuduStatus(status);             \
+    EXPECT_TRUE(_s.ok()) << "Error: " << _s.GetDetail();           \
+  } while (0)
 
 namespace impala {
 

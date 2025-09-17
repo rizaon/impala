@@ -37,3 +37,11 @@ add_library(ExecKudu
 )
 
 add_dependencies(ExecKudu gen-deps)
+
+if (BUILD_WITH_NO_TESTS)
+  return()
+endif()
+
+add_executable(kudu-array-inserter kudu-array-inserter.cc)
+target_link_libraries(kudu-array-inserter ${IMPALA_LINK_LIBS})
+

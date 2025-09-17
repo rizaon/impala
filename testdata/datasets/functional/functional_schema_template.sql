@@ -4804,6 +4804,26 @@ PARTITION BY HASH (tkey) PARTITIONS 3 STORED AS KUDU;
 ---- DATASET
 functional
 ---- BASE_TABLE_NAME
+kudu_array
+---- COLUMNS
+id tinyint
+array_int array<int>
+array_timestamp array<timestamp>
+array_varchar array<varchar(1)>
+array_decimal array<decimal(18,18)>
+---- CREATE_KUDU
+CREATE TABLE {db_name}{db_suffix}.{table_name} (
+  id TINYINT PRIMARY KEY,
+  array_INT ARRAY<INT>,
+  array_TIMESTAMP ARRAY<TIMESTAMP>,
+  array_VARCHAR ARRAY<VARCHAR(1)>,
+  array_DECIMAL ARRAY<DECIMAL(18,18)>
+)
+PARTITION BY HASH (id) PARTITIONS 3 STORED AS KUDU;
+====
+---- DATASET
+functional
+---- BASE_TABLE_NAME
 timestamp_with_tz_str
 ---- COLUMNS
 id INT

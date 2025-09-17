@@ -1141,6 +1141,11 @@ public class Analyzer {
           table instanceof FePaimonTable);
       return new BaseTableRef(tableRef, resolvedPath);
     } else {
+      // TODO: Support referencing a Kudu collection column as a table.
+      if (resolvedPath.getRootTable() instanceof FeKuduTable) {
+        throw new AnalysisException(
+            "Referencing a Kudu collection column as a table is not supported.");
+      }
       return new CollectionTableRef(tableRef, resolvedPath, false);
     }
   }
