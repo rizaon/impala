@@ -390,10 +390,17 @@ public class AnalyzeKuduDDLTest extends FrontendTestBase {
         "partitioning columns: (1 vs 2). Range partition: 'PARTITION 0 < VALUES <= 1'",
         isExternalPurgeTbl);
 
+    // Test supported Kudu complex types
+    AnalyzesOk("create table tab (x ARRAY<INT> primary key) " +
+        "partition by hash(x) partitions 3 stored as kudu",
+        isExternalPurgeTbl);
+    AnalyzesOk("create table tab (x int primary key, y ARRAY<INT>) " +
+        "partition by hash(x) partitions 3 stored as kudu",
+        isExternalPurgeTbl);
 
     // Test unsupported Kudu types
     List<String> unsupportedTypes = Lists.newArrayList("CHAR(20)",
-        "STRUCT<f1:INT,f2:STRING>", "ARRAY<INT>", "MAP<STRING,STRING>");
+        "STRUCT<f1:INT,f2:STRING>", "MAP<STRING,STRING>");
     for (String t: unsupportedTypes) {
       String expectedError = String.format(
           "Cannot create table 'tab': Type %s is not supported in Kudu", t);
