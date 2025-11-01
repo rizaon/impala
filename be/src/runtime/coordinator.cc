@@ -1207,6 +1207,24 @@ Status Coordinator::UpdateBackendExecStatus(const ReportExecStatusRequestPB& req
     // If any nodes were blacklisted, retry the query.
     if (!retryable_status.ok()) {
       parent_query_driver_->TryQueryRetry(parent_request_state_, &retryable_status);
+    } else {
+      if (!near_complete_.Load()) {
+        near_complete_.Store(
+            backend_state->num_remaining_instances_for_status_report() > 0);
+      }
+
+      if (near_complete_.Load()) {
+        vector<QueryBackendStatusPB> backend_statuses =
+            backend_resource_state_->CollectBackendsForStatusReport();
+        if (backend_statuses.size() > 0) {
+          VLOG_QUERY << "Updating admission control with " << backend_statuses.size()
+                     << " backend statuses. query_id=" << PrintId(query_id());
+          AdmissionControlClient* admission_control_client =
+              parent_request_state_->admission_control_client();
+          DCHECK(admission_control_client != nullptr);
+          admission_control_client->UpdateQueryBackendsStatus(backend_statuses);
+        }
+      }
     }
   }
 

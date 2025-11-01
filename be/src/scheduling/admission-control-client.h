@@ -56,6 +56,11 @@ class AdmissionControlClient {
   // for the query on those backends.
   virtual void ReleaseQueryBackends(const std::vector<NetworkAddressPB>& host_addr) = 0;
 
+  // Called when coordinator need to report admission-related status updates from
+  // backends.
+  virtual void UpdateQueryBackendsStatus(
+      const std::vector<QueryBackendStatusPB>& statuses) = 0;
+
   // Called to cancel admission for the query.
   virtual void CancelAdmission() = 0;
 

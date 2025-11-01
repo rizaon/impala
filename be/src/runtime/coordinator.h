@@ -465,6 +465,9 @@ class Coordinator { // NOLINT: The member variables could be re-ordered to save 
   /// True if the first row has been fetched, false otherwise.
   bool first_row_fetched_ = false;
 
+  /// True if one of backend executor is near complete.
+  AtomicBool near_complete_{false};
+
   /// Returns a local object pool.
   ObjectPool* obj_pool() { return obj_pool_.get(); }
 

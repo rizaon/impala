@@ -44,6 +44,8 @@ class LocalAdmissionControlClient : public AdmissionControlClient {
   virtual void ReleaseQueryBackends(
       const std::vector<NetworkAddressPB>& host_addr) override;
   virtual void CancelAdmission() override;
+  virtual void UpdateQueryBackendsStatus(
+      const std::vector<QueryBackendStatusPB>& statuses) override;
 
   bool WasQueued() const override { return was_queued_; }
 

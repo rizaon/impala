@@ -101,6 +101,7 @@ WORKLOAD_MGMT_IMPALAD_FLAGS = (
 
 PREVIOUS_CMD_STR = ""
 
+
 class CustomClusterTestSuite(ImpalaTestSuite):
   """Runs tests with a custom Impala cluster. There are two modes:
   - If a @with_args decorator is specified on the class, all tests in the class share a
@@ -662,7 +663,7 @@ class CustomClusterTestSuite(ImpalaTestSuite):
     #     + 1 (for catalogd if enable_catalogd_ha is set in the options).
     if expected_subscribers == 0:
       expected_subscribers = expected_num_impalads + 1
-      if "--enable_admission_service" in options:
+      if "--enable_admission_service" in options or cls.cluster.admissiond is not None:
         expected_subscribers += 1
       if "--enable_catalogd_ha" in options:
         expected_subscribers += 1

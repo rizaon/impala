@@ -403,7 +403,7 @@ string AdmissionController::PoolStats::DebugString() const {
   ss << "agg_num_queued=" << agg_num_queued_ << ", ";
   ss << "agg_mem_reserved=" << PrintBytes(agg_mem_reserved_) << ", ";
   ss << "agg_user_loads=" << agg_user_loads_.DebugString() << ", ";
-  ss << " local_host(local_mem_admitted=" << PrintBytes(local_mem_admitted_) << ", ";
+  ss << "local_host(local_mem_admitted=" << PrintBytes(local_mem_admitted_) << ", ";
   ss << "local_trivial_running=" << local_trivial_running_ << ", ";
   ss << DebugPoolStats(local_stats_) << ")";
   return ss.str();
@@ -943,6 +943,61 @@ void AdmissionController::UpdateStatsOnReleaseForBackends(const UniqueIdPB& quer
   PoolStats* pool_stats = GetPoolStats(running_query.request_pool);
   pool_stats->ReleaseMem(total_mem_to_release);
   pools_for_updates_.insert(running_query.request_pool);
+}
+
+void AdmissionController::UpdateQueryBackendsStatus(const UniqueIdPB& query_id,
+    const UniqueIdPB& coord_id, const std::vector<QueryBackendStatusPB>& updates) {
+  {
+    lock_guard<mutex> lock(admission_ctrl_lock_);
+    UpdateQueryBackendsStatusLocked(query_id, coord_id, updates);
+  }
+  dequeue_cv_.NotifyOne();
+}
+
+void AdmissionController::UpdateQueryBackendsStatusLocked(const UniqueIdPB& query_id,
+    const UniqueIdPB& coord_id, const std::vector<QueryBackendStatusPB>& updates) {
+  auto host_it = running_queries_.find(coord_id);
+  if (host_it == running_queries_.end()) {
+    // In the context of the admission control service, this may happen, e.g. if a
+    // coordinator is reported as failed by the statestore but a ReleaseQuery rpc from
+    // it is delayed in the network and arrives much later.
+    LOG(WARNING) << "Unable to find host " << PrintId(coord_id)
+                 << " to update backends status for query " << PrintId(query_id)
+                 << ", may have already been released.";
+    return;
+  }
+  auto it = host_it->second.find(query_id);
+  if (it == host_it->second.end()) {
+    // In the context of the admission control service, this may happen, e.g. if a
+    // UpdateQueryBackendStatuses rpc is delayed in the network and arrives after the
+    // ReleaseQueryBackends/ReleaseQuery rpc, so only log as a WARNING.
+    LOG(WARNING) << "Unable to find resources to release backends for query "
+                 << PrintId(query_id) << ", may have already been released.";
+    return;
+  }
+
+  RunningQuery& running_query = it->second;
+  for (auto& backend_status : updates) {
+    auto& host_addr = backend_status.host_addr();
+    auto backend_allocation = running_query.per_backend_resources.find(host_addr);
+    if (backend_allocation == running_query.per_backend_resources.end()) {
+      // In the context of the admission control service, this may happen, e.g. if a
+      // UpdateQueryBackendStatuses rpc is delayed in the network and arrives after the
+      // ReleaseQueryBackends/ReleaseQuery rpc, so only log as a WARNING.
+      string err_msg =
+          strings::Substitute("Error: Cannot find exec params of host $0 for query $1.",
+              NetworkAddressPBToString(host_addr), PrintId(query_id));
+      LOG(WARNING) << err_msg;
+      continue;
+    }
+
+    int instance_remains = backend_status.fragment_instance_remains();
+    int diff = backend_allocation->second.slots_to_use - instance_remains;
+    if (instance_remains > 0 && diff > 0) {
+      UpdateHostStats(host_addr, 0, 0, -diff);
+      backend_allocation->second.slots_to_use = instance_remains;
+    }
+  }
 }
 
 void AdmissionController::UpdateStatsOnAdmission(

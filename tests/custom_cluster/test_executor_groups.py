@@ -16,18 +16,20 @@
 # under the License.
 
 from __future__ import absolute_import, division, print_function
+import json
+import logging
+import os
+import re
+from time import sleep
+
 from builtins import range
-from tests.common.custom_cluster_test_suite import CustomClusterTestSuite
+import pytest
+
+from tests.common.custom_cluster_test_suite import ADMISSIOND_ARGS, CustomClusterTestSuite
 from tests.common.impala_connection import FINISHED, RUNNING
 from tests.common.parametrize import UniqueDatabase
 from tests.common.test_result_verifier import error_msg_startswith
 from tests.util.concurrent_workload import ConcurrentWorkload
-import json
-import logging
-import os
-import pytest
-import re
-from time import sleep
 
 LOG = logging.getLogger("test_auto_scaling")
 
@@ -132,7 +134,7 @@ DEFAULT_RESOURCE_POOL = "default-pool"
 DEBUG_ACTION_DELAY_SCAN = "HDFS_SCANNER_THREAD_OBTAINED_RANGE:SLEEP@1000"
 
 
-class TestExecutorGroups(CustomClusterTestSuite):
+class TestExecutorGroupsBase(CustomClusterTestSuite):
   """This class contains tests that exercise the logic related to scaling clusters up and
   down by adding and removing groups of executors. All tests start with a base cluster
   containing a dedicated coordinator, catalog, and statestore. Tests will then start
@@ -146,8 +148,11 @@ class TestExecutorGroups(CustomClusterTestSuite):
     method.__dict__["num_exclusive_coordinators"] = 1
     self.num_groups = 1
     self.num_impalads = 1
-    super(TestExecutorGroups, self).setup_method(method)
+    super(TestExecutorGroupsBase, self).setup_method(method)
     self.coordinator = self.cluster.impalads[0]
+
+  def _get_ac_log_name(self):
+    return "impalad"
 
   def _group_name(self, resource_pool, name_suffix):
     # By convention, group names must start with their associated resource pool name
@@ -213,6 +218,9 @@ class TestExecutorGroups(CustomClusterTestSuite):
     cluster_args = ["--impalad_args=-executor_groups=coordinator"]
     if extra_args:
       cluster_args.append("--impalad_args=%s" % extra_args)
+    if self._get_ac_log_name() == "admissiond":
+      cluster_args.append("--enable_admission_service")
+      cluster_args.append("--{}={}".format(ADMISSIOND_ARGS, extra_args))
     self._start_impala_cluster(options=cluster_args,
                                cluster_size=num_coordinators,
                                num_coordinators=num_coordinators,
@@ -297,6 +305,87 @@ class TestExecutorGroups(CustomClusterTestSuite):
     expected_str exists in the query profile."""
     self.assert_eventually(
       60, 1, lambda: expected_str in self.client.get_runtime_profile(query_handle))
+
+  def _setup_three_exec_group_cluster(
+      self, coordinator_test_args,
+      exec_group_to_start=["root.tiny", "root.small", "root.large"]):
+    # The path to resources directory which contains the admission control config files.
+    RESOURCES_DIR = os.path.join(os.environ['IMPALA_HOME'], "fe", "src", "test",
+                                 "resources")
+    # Define three group sets: tiny, small and large
+    fs_allocation_path = os.path.join(RESOURCES_DIR, "fair-scheduler-3-groups.xml")
+    # Define the min-query-mem-limit, max-query-mem-limit,
+    # max-query-cpu-core-per-node-limit and max-query-cpu-core-coordinator-limit
+    # properties of the three sets:
+    # tiny: [0, 64MB, 4, 4]
+    # small: [0, 90MB, 8, 8]
+    # large: [64MB+1Byte, 8PB, 64, 64]
+    llama_site_path = os.path.join(RESOURCES_DIR, "llama-site-3-groups.xml")
+
+    # extra args template to start coordinator
+    extra_args_template = ("-vmodule admission-controller=3 "
+        "-admission_control_slots=8 "
+        "-expected_executor_group_sets=root.tiny:1,root.small:2,root.large:3 "
+        "-fair_scheduler_allocation_path %s "
+        "-llama_site_path %s "
+        "%s ")
+
+    # Start with a regular admission config, multiple pools, no resource limits.
+    self._restart_coordinators(num_coordinators=1,
+        extra_args=extra_args_template % (fs_allocation_path, llama_site_path,
+          coordinator_test_args))
+
+    # Create fresh client
+    self.create_impala_clients()
+
+    # parameters to start executor groups.
+    exec_group_params = {
+      "root.tiny": (1, 4, "-mem_limit=2g"),
+      "root.small": (2, 8, "-mem_limit=2g"),
+      "root.large": (3, 64, "-mem_limit=4g")
+    }
+
+    # start each executor groups.
+    for egroup in exec_group_to_start:
+      (size, slot, extra_args) = exec_group_params[egroup]
+      # Add an exec group with 4 admission slots and 1 executors.
+      self._add_executor_group("group", size, admission_control_slots=slot,
+                              resource_pool=egroup, extra_args=extra_args)
+    # assert group health.
+    assert self._get_num_executor_groups(only_healthy=True) == len(exec_group_to_start)
+    for egroup in exec_group_to_start:
+      assert self._get_num_executor_groups(
+        only_healthy=True, exec_group_set_prefix=egroup) == 1
+
+  def _set_query_options(self, query_options):
+    """Set query options by setting client configuration."""
+    for k, v in query_options.items():
+      self.hs2_client.set_configuration_option(k, v)
+
+  def _run_query_and_verify_profile(self, query, expected_strings_in_profile,
+                                    not_expected_in_profile=[],
+                                    fetch_exec_summary=False):
+    """Run 'query' and assert existence of 'expected_strings_in_profile' and
+    nonexistence of 'not_expected_in_profile' in query profile.
+    Caller is reponsible to close self.hs2_client at the end of test."""
+    result = self.hs2_client.execute(query, fetch_exec_summary=fetch_exec_summary)
+    profile = str(result.runtime_profile)
+    for expected_profile in expected_strings_in_profile:
+      assert expected_profile in profile, (
+        "Expect '{0}' IN query profile but can not find it.\n{1}".format(
+          expected_profile, profile
+        )
+      )
+    for not_expected in not_expected_in_profile:
+      assert not_expected not in profile, (
+        "Expect '{0}' NOT IN query profile but found it.\n{1}".format(
+          expected_profile, profile
+        )
+      )
+    return result
+
+
+class TestExecutorGroups(TestExecutorGroupsBase):
 
   @pytest.mark.execute_serially
   @CustomClusterTestSuite.with_args(impalad_args="-queue_wait_timeout_ms=1000")
@@ -937,79 +1026,6 @@ class TestExecutorGroups(CustomClusterTestSuite):
         "Memory and cpu limit checking is skipped.") in str(result.runtime_profile)
 
     self.client.close()
-
-  def _setup_three_exec_group_cluster(self, coordinator_test_args):
-    # The path to resources directory which contains the admission control config files.
-    RESOURCES_DIR = os.path.join(os.environ['IMPALA_HOME'], "fe", "src", "test",
-                                 "resources")
-    # Define three group sets: tiny, small and large
-    fs_allocation_path = os.path.join(RESOURCES_DIR, "fair-scheduler-3-groups.xml")
-    # Define the min-query-mem-limit, max-query-mem-limit,
-    # max-query-cpu-core-per-node-limit and max-query-cpu-core-coordinator-limit
-    # properties of the three sets:
-    # tiny: [0, 64MB, 4, 4]
-    # small: [0, 90MB, 8, 8]
-    # large: [64MB+1Byte, 8PB, 64, 64]
-    llama_site_path = os.path.join(RESOURCES_DIR, "llama-site-3-groups.xml")
-
-    # extra args template to start coordinator
-    extra_args_template = ("-vmodule admission-controller=3 "
-        "-admission_control_slots=8 "
-        "-expected_executor_group_sets=root.tiny:1,root.small:2,root.large:3 "
-        "-fair_scheduler_allocation_path %s "
-        "-llama_site_path %s "
-        "%s ")
-
-    # Start with a regular admission config, multiple pools, no resource limits.
-    self._restart_coordinators(num_coordinators=1,
-        extra_args=extra_args_template % (fs_allocation_path, llama_site_path,
-          coordinator_test_args))
-
-    # Create fresh client
-    self.create_impala_clients()
-    # Add an exec group with 4 admission slots and 1 executors.
-    self._add_executor_group("group", 1, admission_control_slots=4,
-                             resource_pool="root.tiny", extra_args="-mem_limit=2g")
-    # Add an exec group with 8 admission slots and 2 executors.
-    self._add_executor_group("group", 2, admission_control_slots=8,
-                             resource_pool="root.small", extra_args="-mem_limit=2g")
-    # Add another exec group with 64 admission slots, 3 executors, and 4g mem_limit.
-    self._add_executor_group("group", 3, admission_control_slots=64,
-                             resource_pool="root.large", extra_args="-mem_limit=4g")
-    assert self._get_num_executor_groups(only_healthy=True) == 3
-    assert self._get_num_executor_groups(only_healthy=True,
-                                         exec_group_set_prefix="root.tiny") == 1
-    assert self._get_num_executor_groups(only_healthy=True,
-                                         exec_group_set_prefix="root.small") == 1
-    assert self._get_num_executor_groups(only_healthy=True,
-                                         exec_group_set_prefix="root.large") == 1
-
-  def _set_query_options(self, query_options):
-    """Set query options by setting client configuration."""
-    for k, v in query_options.items():
-      self.hs2_client.set_configuration_option(k, v)
-
-  def _run_query_and_verify_profile(self, query, expected_strings_in_profile,
-                                    not_expected_in_profile=[],
-                                    fetch_exec_summary=False):
-    """Run 'query' and assert existence of 'expected_strings_in_profile' and
-    nonexistence of 'not_expected_in_profile' in query profile.
-    Caller is reponsible to close self.hs2_client at the end of test."""
-    result = self.hs2_client.execute(query, fetch_exec_summary=fetch_exec_summary)
-    profile = str(result.runtime_profile)
-    for expected_profile in expected_strings_in_profile:
-      assert expected_profile in profile, (
-        "Expect '{0}' IN query profile but can not find it.\n{1}".format(
-          expected_profile, profile
-        )
-      )
-    for not_expected in not_expected_in_profile:
-      assert not_expected not in profile, (
-        "Expect '{0}' NOT IN query profile but found it.\n{1}".format(
-          expected_profile, profile
-        )
-      )
-    return result
 
   def __verify_fs_writers(self, result, expected_num_writers,
                           expected_instances_per_host):
@@ -1905,3 +1921,58 @@ class TestExecutorGroups(CustomClusterTestSuite):
     assert "Request Pool: root.small" in profile, profile
 
     self.client.close_query(handle)
+
+
+class TestExecutorGroupsAndLocalAC(TestExecutorGroupsBase):
+
+  @pytest.mark.execute_serially
+  def test_reduce_query_slots(self):
+    """Test that admission controller reduces slots in use on backends when
+    number of remaining fragment instances is less than slots in use."""
+    coordinator_test_args = "--gen_experimental_profile=true --logbuflevel=-1"
+    # Start only root.large executor group.
+    self._setup_three_exec_group_cluster(
+      coordinator_test_args, exec_group_to_start=["root.large"])
+
+    self._set_query_options({
+      'COMPUTE_PROCESSING_COST': 'true',
+      'SLOT_COUNT_STRATEGY': 'PLANNER_CPU_ASK',
+      # Delay closing of the last TOP-N node (the fragment just below PlanRootSink).
+      'DEBUG_ACTION': '14:CLOSE:DELAY@10000',
+    })
+
+    result = self._run_query_and_verify_profile(TPCDS_Q1,
+      ["Executor Group: root.large-group", "ExecutorGroupsConsidered: 3",
+       "Verdict: Match", "CpuAsk: 16", "AvgAdmissionSlotsPerExecutor: 6",
+       # coordinator has 1 slot
+       "AdmissionSlots: 1",
+       # 1 executor has F15:1+F01:1+F14:1+F03:1+F13:1+F05:1+F12:1+F07:1 = 8 slots
+       "AdmissionSlots: 8",
+       # 2 executors have F15:1+F14:1+F13:1+F12:1 = 4 slots
+       "AdmissionSlots: 4"
+       ])
+
+    # Validate that coordinator log has updates for backend statuses.
+    self.assert_log_contains(
+      'impalad', 'INFO',
+      "Updating admission control with .* backend statuses. query_id={}".format(
+          result.query_id),
+      expected_count=-1)
+
+    # Validate that slots are reduced to 1 at some point.
+    for prev_slots in [8, 4]:
+      self.assert_log_contains(
+        self._get_ac_log_name(), 'INFO',
+        "Update slots in use for host=.* prev={} new=1".format(prev_slots),
+        expected_count=-1)
+
+
+class TestExecutorGroupsAndGlobalAC(TestExecutorGroupsAndLocalAC):
+
+  def _get_ac_log_name(self):
+    return "admissiond"
+
+  def setup_method(self, method):
+    if self.exploration_strategy() != 'exhaustive':
+      pytest.skip('runs only in exhaustive')
+    super(TestExecutorGroupsAndGlobalAC, self).setup_method(method)

@@ -22,7 +22,6 @@ package impala;
 
 import "common.proto";
 import "control_service.proto";
-import "statestore_service.proto";
 
 // Execution parameters for a single fragment instance. Used to assemble the
 // TPlanFragmentInstanceCtx/PlanFragmentInstanceCtxPB.
@@ -273,6 +272,24 @@ message ReleaseQueryBackendsResponsePB {
   optional StatusPB status = 1;
 }
 
+message QueryBackendStatusPB {
+  optional NetworkAddressPB host_addr = 1;
+
+  optional int32 fragment_instance_remains = 2;
+}
+
+message QueryBackendsStatusUpdateRequestPB {
+  // Query id that reports its backend statuses.
+  optional UniqueIdPB query_id = 1;
+
+  // List of QueryBackendStatusPB.
+  repeated QueryBackendStatusPB statuses = 2;
+}
+
+message QueryBackendsStatusUpdateResponsePB {
+  optional StatusPB status = 1;
+}
+
 message CancelAdmissionRequestPB {
   optional UniqueIdPB query_id = 1;
 }
@@ -335,4 +352,10 @@ service AdmissionControlService {
   /// resources. Stale heartbeat messages are ignored.
   rpc AdmissionHeartbeat(AdmissionHeartbeatRequestPB)
       returns (AdmissionHeartbeatResponsePB);
+
+  /// Update admission control with backends executor status for specific queries.
+  /// Admission controller can use this information to gauge cluster utilization
+  /// and make proactive admission decision.
+  rpc UpdateQueryBackendsStatus(QueryBackendsStatusUpdateRequestPB)
+      returns (QueryBackendsStatusUpdateResponsePB);
 }

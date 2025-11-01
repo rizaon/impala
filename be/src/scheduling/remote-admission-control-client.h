@@ -59,6 +59,8 @@ class RemoteAdmissionControlClient : public AdmissionControlClient {
   virtual void ReleaseQuery(int64_t peak_mem_consumption) override;
   virtual void ReleaseQueryBackends(
       const std::vector<NetworkAddressPB>& host_addr) override;
+  virtual void UpdateQueryBackendsStatus(
+      const std::vector<QueryBackendStatusPB>& statuses) override;
   virtual void CancelAdmission() override;
 
   bool WasQueued() const override { return was_queued_; }

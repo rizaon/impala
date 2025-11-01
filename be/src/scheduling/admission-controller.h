@@ -421,6 +421,11 @@ class AdmissionController {
   void ReleaseQueryBackends(const UniqueIdPB& query_id, const UniqueIdPB& coord_id,
       const vector<NetworkAddressPB>& host_addr);
 
+  /// Update stats upon receiving periodic updates from backends for the specified
+  /// running query.
+  void UpdateQueryBackendsStatus(const UniqueIdPB& query_id, const UniqueIdPB& coord_id,
+      const std::vector<QueryBackendStatusPB>& updates);
+
   /// Releases the resources for any queries that were scheduled for the coordinator
   /// 'coord_id' that are not in the list 'query_ids'. Only used in the context of the
   /// admission control service. Returns a list of the queries that had their resources
@@ -1378,6 +1383,11 @@ class AdmissionController {
   /// Performs the work of ReleaseQueryBackends(). 'admission_ctrl_lock_' must be held.
   void ReleaseQueryBackendsLocked(const UniqueIdPB& query_id, const UniqueIdPB& coord_id,
       const vector<NetworkAddressPB>& host_addr);
+
+  /// Performs the work of UpdateQueryBackendsStatus(). 'admission_ctrl_lock_' must be
+  /// held.
+  void UpdateQueryBackendsStatusLocked(const UniqueIdPB& query_id,
+      const UniqueIdPB& coord_id, const std::vector<QueryBackendStatusPB>& updates);
 
   FRIEND_TEST(AdmissionControllerTest, AggregatedUserLoads);
   FRIEND_TEST(AdmissionControllerTest, CanAdmitRequestCount);

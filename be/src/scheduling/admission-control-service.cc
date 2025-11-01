@@ -279,6 +279,26 @@ void AdmissionControlService::ReleaseQueryBackends(
   RespondAndReleaseRpc(Status::OK(), resp, rpc_context);
 }
 
+void AdmissionControlService::UpdateQueryBackendsStatus(
+    const QueryBackendsStatusUpdateRequestPB* req,
+    QueryBackendsStatusUpdateResponsePB* resp, RpcContext* rpc_context) {
+  VLOG(2) << "UpdateQueryBackendsStatus: query_id=" << req->query_id();
+  shared_ptr<AdmissionState> admission_state;
+  RESPOND_IF_ERROR(admission_state_map_.Get(req->query_id(), &admission_state));
+
+  {
+    lock_guard<mutex> l(admission_state->lock);
+    vector<QueryBackendStatusPB> statuses;
+    for (const QueryBackendStatusPB& status : req->statuses()) {
+      statuses.push_back(status);
+    }
+    AdmissiondEnv::GetInstance()->admission_controller()->UpdateQueryBackendsStatus(
+        req->query_id(), admission_state->coord_id, statuses);
+  }
+
+  RespondAndReleaseRpc(Status::OK(), resp, rpc_context);
+}
+
 void AdmissionControlService::CancelAdmission(const CancelAdmissionRequestPB* req,
     CancelAdmissionResponsePB* resp, kudu::rpc::RpcContext* rpc_context) {
   VLOG(1) << "CancelAdmission: query_id=" << req->query_id();

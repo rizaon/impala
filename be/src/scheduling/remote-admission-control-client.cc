@@ -265,6 +265,39 @@ void RemoteAdmissionControlClient::ReleaseQueryBackends(
   }
 }
 
+void RemoteAdmissionControlClient::UpdateQueryBackendsStatus(
+    const std::vector<QueryBackendStatusPB>& statuses) {
+  std::unique_ptr<AdmissionControlServiceProxy> proxy;
+  Status get_proxy_status = AdmissionControlService::GetProxy(&proxy);
+  if (!get_proxy_status.ok()) {
+    LOG(ERROR) << "UpdateQueryBackendsStatus for " << query_id_
+               << " failed to get proxy: " << get_proxy_status;
+    return;
+  }
+
+  QueryBackendsStatusUpdateRequestPB req;
+  QueryBackendsStatusUpdateResponsePB resp;
+  *req.mutable_query_id() = query_id_;
+  for (const QueryBackendStatusPB& status : statuses) {
+    *req.add_statuses() = status;
+  }
+  Status rpc_status = RpcMgr::DoRpcWithRetry(proxy,
+      &AdmissionControlServiceProxy::UpdateQueryBackendsStatus, req, &resp, query_ctx_,
+      "UpdateQueryBackendsStatus() RPC failed", RPC_NUM_RETRIES, RPC_TIMEOUT_MS,
+      RPC_BACKOFF_TIME_MS, "REMOTE_AC_UPDATE_QUERY_BACKENDS_STATUS");
+
+  // Failure of this rpc is not considered a query failure, so we just log it.
+  if (!rpc_status.ok()) {
+    LOG(WARNING) << "UpdateQueryBackendsStatus rpc failed for " << query_id_ << ": "
+                 << rpc_status;
+  }
+  Status resp_status(resp.status());
+  if (!resp_status.ok()) {
+    LOG(WARNING) << "UpdateQueryBackendsStatus failed for " << query_id_ << ": "
+                 << resp_status;
+  }
+}
+
 void RemoteAdmissionControlClient::CancelAdmission() {
   {
     lock_guard<mutex> l(lock_);

@@ -129,6 +129,37 @@ void Coordinator::BackendResourceState::BackendsReleased(
   num_released_ += released_backend_states.size();
 }
 
+vector<QueryBackendStatusPB>
+Coordinator::BackendResourceState::CollectBackendsForStatusReport() {
+  lock_guard<SpinLock> lock(lock_);
+  vector<QueryBackendStatusPB> backend_status_pbs;
+
+  // True if the 'Timed Release' heuristic should be triggered.
+  // We share the same timer as used in MarkBackendFinished().
+  bool release_backends_timeout_expired =
+      released_timer_.ElapsedTime() > release_backend_states_delay_ns_;
+  if (!release_backends_timeout_expired) {
+    return backend_status_pbs;
+  } else {
+    released_timer_.Reset();
+  }
+
+  for (auto backend_resource_state : backend_resource_states_) {
+    BackendState* backend_state = backend_resource_state.first;
+    if (backend_resource_state.second == ResourceState::IN_USE) {
+      int remaining_instances =
+          backend_state->num_remaining_instances_for_status_report();
+      if (remaining_instances > 0) {
+        QueryBackendStatusPB backend_status_pb;
+        *backend_status_pb.mutable_host_addr() = backend_state->impalad_address();
+        backend_status_pb.set_fragment_instance_remains(remaining_instances);
+        backend_status_pbs.push_back(backend_status_pb);
+      }
+    }
+  }
+  return backend_status_pbs;
+}
+
 vector<Coordinator::BackendState*>
 Coordinator::BackendResourceState::CloseAndGetUnreleasedBackends() {
   lock_guard<SpinLock> lock(lock_);

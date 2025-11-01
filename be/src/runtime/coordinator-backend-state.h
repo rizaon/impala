@@ -206,6 +206,13 @@ class Coordinator::BackendState {
   int64_t rpc_latency() const { return rpc_latency_; }
   kudu::Status exec_rpc_status() const { return exec_rpc_status_; }
 
+  /// Return -1 if this backend is not near complete.
+  /// Otherwise, return the number of remaining instances.
+  int num_remaining_instances_for_status_report() {
+    std::unique_lock<std::mutex> l(lock_);
+    return IsNearCompleteLocked(l) ? num_remaining_instances_ : -1;
+  }
+
   int64_t last_report_time_ms() {
     std::lock_guard<std::mutex> l(lock_);
     DCHECK(exec_done_) << "May only be called after WaitOnExecRpc() completes.";
@@ -465,6 +472,13 @@ class Coordinator::BackendState {
   /// Version of IsDone() where caller must hold lock_ via lock;
   bool IsDoneLocked(const std::unique_lock<std::mutex>& lock) const;
 
+  /// Return True if this backend is near complete. Must hold lock_ via lock;
+  inline bool IsNearCompleteLocked(const std::unique_lock<std::mutex>& lock) const {
+    DCHECK(lock.owns_lock() && lock.mutex() == &lock_);
+    return 0 < num_remaining_instances_
+        && num_remaining_instances_ < backend_exec_params_.slots_to_use() && status_.ok();
+  }
+
   /// Same as GetResourceUtilization() but caller must hold lock.
   ResourceUtilization GetResourceUtilizationLocked();
 
@@ -612,6 +626,8 @@ class Coordinator::BackendResourceState {
   /// as RELEASED.
   void BackendsReleased(const std::vector<BackendState*>& released_backend_states);
 
+  std::vector<QueryBackendStatusPB> CollectBackendsForStatusReport();
+
   /// Closes the state machine and returns a vector of IN_USE or PENDING BackendStates.
   /// This method is idempotent. The caller is expected to mark all returned
   /// BackendStates as released using BackendReleased().
@@ -626,8 +642,10 @@ class Coordinator::BackendResourceState {
   /// Protects all member variables below.
   SpinLock lock_;
 
-  /// A timer used to track how frequently calls to MarkBackendFinished transition
-  /// Backends to the RELEASABLE state. Used by the 'Timed Release' heuristic.
+  /// A timer used to track how frequently calls to:
+  /// - MarkBackendFinished transition Backends to the RELEASABLE state.
+  /// - CollectBackendsForStatusReport to return non-empty list of QueryBackendStatusPB.
+  /// Used by the 'Timed Release' heuristic.
   MonotonicStopWatch released_timer_;
 
   /// Counts the number of Backends in the IN_USE state.

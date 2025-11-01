@@ -332,6 +332,7 @@ Status ExecNode::Reset(RuntimeState* state, RowBatch* row_batch) {
 
 void ExecNode::Close(RuntimeState* state) {
   if (is_closed_) return;
+  discard_result(ExecDebugAction(TExecNodePhase::CLOSE, state));
   is_closed_ = true;
 
   if (rows_returned_counter_ != NULL) {

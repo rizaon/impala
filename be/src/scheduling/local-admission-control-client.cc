@@ -67,6 +67,12 @@ void LocalAdmissionControlClient::ReleaseQueryBackends(
       query_id_, ExecEnv::GetInstance()->backend_id(), host_addrs);
 }
 
+void LocalAdmissionControlClient::UpdateQueryBackendsStatus(
+    const vector<QueryBackendStatusPB>& statuses) {
+  ExecEnv::GetInstance()->admission_controller()->UpdateQueryBackendsStatus(
+      query_id_, ExecEnv::GetInstance()->backend_id(), statuses);
+}
+
 void LocalAdmissionControlClient::CancelAdmission() {
   admit_outcome_.Set(AdmissionOutcome::CANCELLED);
 }
