@@ -823,7 +823,8 @@ struct TQueryOptions {
   199: optional i32 show_create_table_partition_limit = 1000
 
   // See comment in ImpalaService.thrift
-  200: optional TMemoryEstimateMode memory_estimate_mode = TMemoryEstimateMode.TOTAL
+  200: optional TMemoryEstimateMode memory_estimate_mode =
+      TMemoryEstimateMode.MAX_PIPELINE
 }
 
 // Impala currently has three types of sessions: Beeswax, HiveServer2 and external
