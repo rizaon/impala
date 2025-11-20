@@ -695,13 +695,11 @@ public class Planner {
     maxPerHostPeakResources = MIN_PER_HOST_RESOURCES.max(maxPerHostPeakResources);
     if (queryOptions.getMemory_estimate_mode() == TMemoryEstimateMode.MAX_PIPELINE) {
       // Use pipeline-based memory estimate, but still bound it against
-      // maxPerHostPeakResources.getMinMemReservationBytes() and
       // MIN_PER_HOST_RESOURCES.getMemEstimateBytes().
       long maxPipelineMemEstimateBytes =
-          getMaxPipelineMemGrowth(rootFragment, queryOptions);
-      maxPerHostEstimateBytes = Math.min(maxPerHostPeakResources.getMemEstimateBytes(),
-          maxPerHostPeakResources.getMinMemReservationBytes()
-              + maxPipelineMemEstimateBytes);
+          getPipelineBasedMemEstimate(rootFragment, queryOptions);
+      maxPerHostEstimateBytes = Math.min(
+          maxPerHostPeakResources.getMemEstimateBytes(), maxPipelineMemEstimateBytes);
       LOG.info("maxPerHostEstimateBytes={}, maxPipelineMemEstimateBytes={}, "
               + "minMemReservationBytes={}, maxMemReservationBytes={}, "
               + "MIN_PER_HOST_RESOURCES={}",
@@ -771,7 +769,7 @@ public class Planner {
    * pipeline can start streaming rows. This algorithm also include memory growth from
    * Fragment's per-backend resource profile (ie., memory allocated for runtime profile).
    */
-  private static long getMaxPipelineMemGrowth(
+  private static long getPipelineBasedMemEstimate(
       PlanFragment rootFragment, TQueryOptions queryOptions) {
     // Traverse build-side then probe-side.
     List<PlanFragment> allFragments = rootFragment.getNodesPreOrder();
@@ -779,6 +777,7 @@ public class Planner {
     Map<PlanNodeId, Long> pipelineMemGrowth = new HashMap<>();
     Map<PlanNodeId, Long> maxMemGrowthAtPipeline = new HashMap<>();
     Map<PlanNodeId, Long> totalMaxAdjacentOf = new HashMap<>();
+    long totalOpenMemEstimate = 0;
     long maxMemGrowthOfTree = 0;
     long fixedResourcePerBackend = 0;
 
@@ -787,8 +786,13 @@ public class Planner {
       long maxMemGrowthAtFragment = 0;
       // Separate between instance resource profile (resource needed by PlanNodes) vs
       // backend resource profile (shared resource such as runtime filter buffers).
-      long currFragmentMemGrowth =
-          fragment.getTotalInstancesResourceProfile(queryOptions).getMemGrowthEstimate();
+      long numInstancePerHost = fragment.getNumInstancesPerHost(queryOptions);
+      long duringOpenMemEstimate =
+          numInstancePerHost * fragment.getPerInstanceOpenMemEstimate();
+      long postOpenMemEstimate =
+          numInstancePerHost * fragment.getPerInstanceMemEstimate();
+      long currFragmentMemGrowth = postOpenMemEstimate - duringOpenMemEstimate;
+      totalOpenMemEstimate += duringOpenMemEstimate;
       fixedResourcePerBackend +=
           fragment.getPerBackendResourceProfile().getMemEstimateBytes();
 
@@ -820,14 +824,10 @@ public class Planner {
         for (PipelineMembership getNextPipe : getnextPipelines) {
           PlanNodeId leftPipeId = getNextPipe.getId();
           if (!seenInThisFragment.contains(leftPipeId)) {
-            if (pipelineMemGrowth.containsKey(leftPipeId)) {
-              // Sum this fragment's resource to this pipeline once.
-              pipelineMemGrowth.put(
-                  leftPipeId, currFragmentMemGrowth + pipelineMemGrowth.get(leftPipeId));
-            } else {
-              // Initialize resource for this pipeline.
-              pipelineMemGrowth.put(leftPipeId, currFragmentMemGrowth);
-            }
+            // Sum this fragment's resource to this pipeline once.
+            long totalMemGrowthAtPipe =
+                currFragmentMemGrowth + pipelineMemGrowth.getOrDefault(leftPipeId, 0L);
+            pipelineMemGrowth.put(leftPipeId, totalMemGrowthAtPipe);
             seenInThisFragment.add(leftPipeId);
           }
         }
@@ -846,11 +846,9 @@ public class Planner {
 
             Preconditions.checkState(pipelineMemGrowth.containsKey(openPipeId));
             adjacentPipeMemGrowth += pipelineMemGrowth.get(openPipeId);
-            long maxResourceAtRight = maxMemGrowthAtPipeline.get(openPipeId);
-            allMemGrowthAtOpens += maxResourceAtRight;
+            allMemGrowthAtOpens += maxMemGrowthAtPipeline.get(openPipeId);
           }
           pipelineMemGrowth.put(leftPipeId, adjacentPipeMemGrowth);
-          allMemGrowthAtOpens += totalMaxAdjacentOf.getOrDefault(leftPipeId, 0L);
           totalMaxAdjacentOf.put(leftPipeId, allMemGrowthAtOpens);
 
           // Update Max resource rooted at this fragment and left pipelines.
@@ -880,8 +878,9 @@ public class Planner {
       }
       LOG.info("maxMemGrowthAtPipeline={{}}", sb);
     }
-    maxMemGrowthOfTree += fixedResourcePerBackend;
-    return maxMemGrowthOfTree;
+    LOG.info("totalOpenMemEstimate={} maxMemGrowthOfTree={} fixedResourcePerBackend={}",
+        totalOpenMemEstimate, maxMemGrowthOfTree, fixedResourcePerBackend);
+    return totalOpenMemEstimate + fixedResourcePerBackend + maxMemGrowthOfTree;
   }
 
   /**

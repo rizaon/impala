@@ -22,7 +22,7 @@ select  s_store_name, s_store_id,
 explain_level=3
 ---- PARALLELPLANS
 Max Per-Host Resource Reservation: Memory=188.97MB Threads=18
-Per-Host Resource Estimates: Memory=505MB
+Per-Host Resource Estimates: Memory=501MB
 F04:PLAN FRAGMENT [UNPARTITIONED] hosts=1 instances=1
 Per-Instance Resources: mem-estimate=4.15MB mem-reservation=4.00MB thread-reservation=1
 max-parallelism=1 segment-costs=[956] cpu-comparison-result=120 [max(1 (self) vs 120 (sum children))]

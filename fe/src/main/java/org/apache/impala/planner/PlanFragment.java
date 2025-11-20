@@ -124,6 +124,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
   // dummy value. Gets set correctly in computeResourceProfile().
   private ResourceProfile perBackendResourceProfile_ = ResourceProfile.invalid();
 
+  // A cache of peak memory estimate of PlanNodes within this fragment during open phase.
+  private long perInstanceOpenMemEstimate_ = 0L;
+
   // The total of initial memory reservations (in bytes) that will be claimed over the
   // lifetime of a fragment executing on a backend. Computed in computeResourceProfile().
   // Split between the per-instance amounts and reservations shared across all instance
@@ -424,6 +427,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     ExecPhaseResourceProfiles planTreeProfile =
         planRoot_.computeTreeResourceProfiles(analyzer.getQueryOptions());
+    // Assume runtime filter related memory is immediately reserved at Open.
+    perInstanceOpenMemEstimate_ = producedRuntimeFiltersMemReservationBytes_
+        + planTreeProfile.duringOpenProfile.getMemEstimateBytes();
     // The sink is opened after the plan tree.
     ResourceProfile fInstancePostOpenProfile =
         planTreeProfile.postOpenProfile.sum(sink_.getResourceProfile());
@@ -455,6 +461,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     Preconditions.checkArgument(perBackendInitialMemReservationTotalClaims_ > -1);
     Preconditions.checkArgument(producedRuntimeFiltersMemReservationBytes_ > -1);
     Preconditions.checkArgument(consumedGlobalRuntimeFiltersMemReservationBytes_ > -1);
+    Preconditions.checkArgument(perInstanceOpenMemEstimate_ > -1);
+  }
+
+  protected long getPerInstanceOpenMemEstimate() { return perInstanceOpenMemEstimate_; }
+
+  protected long getPerInstanceMemEstimate() {
+    return perInstanceResourceProfile_.getMemEstimateBytes();
   }
 
   /**
