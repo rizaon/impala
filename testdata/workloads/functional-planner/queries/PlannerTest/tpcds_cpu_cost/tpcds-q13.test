@@ -185,7 +185,7 @@ PLAN-ROOT SINK
    in pipelines: 00(GETNEXT)
 ---- DISTRIBUTEDPLAN
 Max Per-Host Resource Reservation: Memory=791.45MB Threads=23
-Per-Host Resource Estimates: Memory=985MB
+Per-Host Resource Estimates: Memory=984MB
 F06:PLAN FRAGMENT [UNPARTITIONED] hosts=1 instances=1
 |  Per-Instance Resources: mem-estimate=635.22KB mem-reservation=0B thread-reservation=1
 |  max-parallelism=1 segment-costs=[68, 0] cpu-comparison-result=120 [max(1 (self) vs 120 (sum children))]
@@ -417,7 +417,7 @@ max-parallelism=190 segment-costs=[1897650149, 370] cpu-comparison-result=120 [m
    in pipelines: 00(GETNEXT)
 ---- PARALLELPLANS
 Max Per-Host Resource Reservation: Memory=791.45MB Threads=23
-Per-Host Resource Estimates: Memory=985MB
+Per-Host Resource Estimates: Memory=984MB
 F06:PLAN FRAGMENT [UNPARTITIONED] hosts=1 instances=1
 |  Per-Instance Resources: mem-estimate=635.22KB mem-reservation=0B thread-reservation=1
 |  max-parallelism=1 segment-costs=[68, 0] cpu-comparison-result=120 [max(1 (self) vs 120 (sum children))]

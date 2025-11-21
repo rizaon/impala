@@ -700,13 +700,13 @@ public class Planner {
           getPipelineBasedMemEstimate(rootFragment, queryOptions);
       maxPerHostEstimateBytes = Math.min(
           maxPerHostPeakResources.getMemEstimateBytes(), maxPipelineMemEstimateBytes);
-      LOG.info("maxPerHostEstimateBytes={}, maxPipelineMemEstimateBytes={}, "
+      LOG.info("maxPerHostEstimateBytes={}, memEstimateBytes={}, "
               + "minMemReservationBytes={}, maxMemReservationBytes={}, "
-              + "MIN_PER_HOST_RESOURCES={}",
-          maxPerHostEstimateBytes, maxPipelineMemEstimateBytes,
+              + "reduction={}",
+          maxPipelineMemEstimateBytes, maxPerHostPeakResources.getMemEstimateBytes(),
           maxPerHostPeakResources.getMinMemReservationBytes(),
           maxPerHostPeakResources.getMemEstimateBytes(),
-          MIN_PER_HOST_RESOURCES.getMemEstimateBytes());
+          maxPerHostPeakResources.getMemEstimateBytes() - maxPipelineMemEstimateBytes);
     } else {
       maxPerHostEstimateBytes = maxPerHostPeakResources.getMemEstimateBytes();
     }
@@ -777,7 +777,7 @@ public class Planner {
     Map<PlanNodeId, Long> pipelineMemGrowth = new HashMap<>();
     Map<PlanNodeId, Long> maxMemGrowthAtPipeline = new HashMap<>();
     Map<PlanNodeId, Long> totalMaxAdjacentOf = new HashMap<>();
-    long totalOpenMemEstimate = 0;
+    long totalMinMemEstimate = 0;
     long maxMemGrowthOfTree = 0;
     long fixedResourcePerBackend = 0;
 
@@ -787,12 +787,14 @@ public class Planner {
       // Separate between instance resource profile (resource needed by PlanNodes) vs
       // backend resource profile (shared resource such as runtime filter buffers).
       long numInstancePerHost = fragment.getNumInstancesPerHost(queryOptions);
-      long duringOpenMemEstimate =
-          numInstancePerHost * fragment.getPerInstanceOpenMemEstimate();
-      long postOpenMemEstimate =
-          numInstancePerHost * fragment.getPerInstanceMemEstimate();
-      long currFragmentMemGrowth = postOpenMemEstimate - duringOpenMemEstimate;
-      totalOpenMemEstimate += duringOpenMemEstimate;
+      ResourceProfile perInstanceResourceProfile =
+          fragment.getPerInstanceResourceProfile();
+      long minMemEstimate =
+          numInstancePerHost * perInstanceResourceProfile.getMinMemReservationBytes();
+      long peakMemEstimate =
+          numInstancePerHost * perInstanceResourceProfile.getMemEstimateBytes();
+      long currFragmentMemGrowth = peakMemEstimate - minMemEstimate;
+      totalMinMemEstimate += minMemEstimate;
       fixedResourcePerBackend +=
           fragment.getPerBackendResourceProfile().getMemEstimateBytes();
 
@@ -878,9 +880,9 @@ public class Planner {
       }
       LOG.info("maxMemGrowthAtPipeline={{}}", sb);
     }
-    LOG.info("totalOpenMemEstimate={} maxMemGrowthOfTree={} fixedResourcePerBackend={}",
-        totalOpenMemEstimate, maxMemGrowthOfTree, fixedResourcePerBackend);
-    return totalOpenMemEstimate + fixedResourcePerBackend + maxMemGrowthOfTree;
+    LOG.info("totalMinMemEstimate={} maxMemGrowthOfTree={} fixedResourcePerBackend={}",
+        totalMinMemEstimate, maxMemGrowthOfTree, fixedResourcePerBackend);
+    return totalMinMemEstimate + fixedResourcePerBackend + maxMemGrowthOfTree;
   }
 
   /**
