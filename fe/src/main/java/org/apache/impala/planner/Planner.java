@@ -696,8 +696,9 @@ public class Planner {
     if (queryOptions.getMemory_estimate_mode() == TMemoryEstimateMode.MAX_PIPELINE) {
       // Use pipeline-based memory estimate, but still bound it against
       // MIN_PER_HOST_RESOURCES.getMemEstimateBytes().
-      long maxPipelineMemEstimateBytes =
-          getPipelineBasedMemEstimate(rootFragment, queryOptions);
+      PipelineBasedMemEstimator estimator =
+          new PipelineBasedMemEstimator(rootFragment, queryOptions);
+      long maxPipelineMemEstimateBytes = estimator.getEstimatedMemUsageBytes();
       maxPerHostEstimateBytes = Math.min(
           maxPerHostPeakResources.getMemEstimateBytes(), maxPipelineMemEstimateBytes);
       LOG.info("maxPerHostEstimateBytes={}, memEstimateBytes={}, "
@@ -743,146 +744,6 @@ public class Planner {
       LOG.trace("Max estimated per-host thread reservation: " +
           maxPerHostPeakResources.getThreadReservation());
     }
-  }
-
-  /**
-   * Find maximum memory growth rooted at root plan's pipeline when considering
-   * overlapping pipeline membership.
-   *
-   * Memory growth is the difference between minimum memory reservation and estimated peak
-   * memory usage in bytes.
-   *
-   * We say pipeline X(GETNEXT) is adjacent to Y(OPEN) if a PlanNode has
-   * PipelineMembership in both X(GETNEXT) and Y(OPEN).
-   *
-   * A memory growth estimate of a pipeline X is sum of memory estimate of all fragments
-   * that have PipelineMembership X(GETNEXT) plus memory growth estimate of all fragment
-   * that have PipelineMembership Y(OPEN) where X(GETNEXT) is adjacent to Y(OPEN) and both
-   * X and Y originate from different fragment.
-   *
-   * Given pipeline X(GETNEXT) and all of its adjacent pipeline Y(OPEN), a maximum
-   * memory growth estimate rooted at pipeline X is the maximum between:
-   * 1). Memory growth estimate of a pipeline X.
-   * 2). Sum of all maximum memory growth estimate rooted at pipelines adjacent to X.
-   *
-   * This method assume that all Y(OPEN) pipelines must complete first before X(GETNEXT)
-   * pipeline can start streaming rows. This algorithm also include memory growth from
-   * Fragment's per-backend resource profile (ie., memory allocated for runtime profile).
-   */
-  private static long getPipelineBasedMemEstimate(
-      PlanFragment rootFragment, TQueryOptions queryOptions) {
-    // Traverse build-side then probe-side.
-    List<PlanFragment> allFragments = rootFragment.getNodesPreOrder();
-    Collections.reverse(allFragments);
-    Map<PlanNodeId, Long> pipelineMemGrowth = new HashMap<>();
-    Map<PlanNodeId, Long> maxMemGrowthAtPipeline = new HashMap<>();
-    Map<PlanNodeId, Long> totalMaxAdjacentOf = new HashMap<>();
-    long totalMinMemEstimate = 0;
-    long maxMemGrowthOfTree = 0;
-    long fixedResourcePerBackend = 0;
-
-    for (PlanFragment fragment : allFragments) {
-      LOG.info("tracing max resource at fragment {}", fragment.getId());
-      long maxMemGrowthAtFragment = 0;
-      // Separate between instance resource profile (resource needed by PlanNodes) vs
-      // backend resource profile (shared resource such as runtime filter buffers).
-      long numInstancePerHost = fragment.getNumInstancesPerHost(queryOptions);
-      ResourceProfile perInstanceResourceProfile =
-          fragment.getPerInstanceResourceProfile();
-      long minMemEstimate =
-          numInstancePerHost * perInstanceResourceProfile.getMinMemReservationBytes();
-      long peakMemEstimate =
-          numInstancePerHost * perInstanceResourceProfile.getMemEstimateBytes();
-      long currFragmentMemGrowth = peakMemEstimate - minMemEstimate;
-      totalMinMemEstimate += minMemEstimate;
-      fixedResourcePerBackend +=
-          fragment.getPerBackendResourceProfile().getMemEstimateBytes();
-
-      // Traverse PlanNode within a fragment bottom-up.
-      List<PlanNode> planNodes = fragment.collectPlanNodes();
-      Collections.reverse(planNodes);
-      Set<PlanNodeId> seenInThisFragment = new HashSet<>();
-      for (PlanNode planNode : planNodes) {
-        // Within a PlanNode, we segregate between GETNEXT pipeline (also called as
-        // leftPipe) and OPEN pipeline (also called as rightPipe). OPEN pipeline is
-        // usually OPEN pipeline from build-hand side of Join node or OPEN
-        // pipeline from child node to blocking parent node (ie., final Aggregation
-        // node).
-        List<PipelineMembership> getnextPipelines =
-            planNode.getPipelines()
-                .stream()
-                .filter(p -> p.getPhase() == TExecNodePhase.GETNEXT)
-                .collect(Collectors.toList());
-        // Filter by !TExecNodePhase.GETNEXT here, in case Impala support
-        // PipelineMembership other than GETNEXT and OPEN in the future.
-        List<PipelineMembership> openPipelines =
-            planNode.getPipelines()
-                .stream()
-                .filter(p -> p.getPhase() != TExecNodePhase.GETNEXT)
-                .collect(Collectors.toList());
-
-        // Initialize pipelineMemGrowth traversing the GETNEXT pipelines bottom-up
-        // within this fragment.
-        for (PipelineMembership getNextPipe : getnextPipelines) {
-          PlanNodeId leftPipeId = getNextPipe.getId();
-          if (!seenInThisFragment.contains(leftPipeId)) {
-            // Sum this fragment's resource to this pipeline once.
-            long totalMemGrowthAtPipe =
-                currFragmentMemGrowth + pipelineMemGrowth.getOrDefault(leftPipeId, 0L);
-            pipelineMemGrowth.put(leftPipeId, totalMemGrowthAtPipe);
-            seenInThisFragment.add(leftPipeId);
-          }
-        }
-
-        // Sum all OPEN pipeline resources to its adjacent GETNEXT pipeline, EXCEPT
-        // for OPEN pipeline that colocated in this fragment. Also keep track the
-        // total of maximum resources rooted at all adjacent OPEN pipeline.
-        for (PipelineMembership getNextPipe : getnextPipelines) {
-          PlanNodeId leftPipeId = getNextPipe.getId();
-          Preconditions.checkState(pipelineMemGrowth.containsKey(leftPipeId));
-          long adjacentPipeMemGrowth = pipelineMemGrowth.get(leftPipeId);
-          long allMemGrowthAtOpens = totalMaxAdjacentOf.getOrDefault(leftPipeId, 0L);
-          for (PipelineMembership openPipe : openPipelines) {
-            PlanNodeId openPipeId = openPipe.getId();
-            if (seenInThisFragment.contains(openPipeId)) continue;
-
-            Preconditions.checkState(pipelineMemGrowth.containsKey(openPipeId));
-            adjacentPipeMemGrowth += pipelineMemGrowth.get(openPipeId);
-            allMemGrowthAtOpens += maxMemGrowthAtPipeline.get(openPipeId);
-          }
-          pipelineMemGrowth.put(leftPipeId, adjacentPipeMemGrowth);
-          totalMaxAdjacentOf.put(leftPipeId, allMemGrowthAtOpens);
-
-          // Update Max resource rooted at this fragment and left pipelines.
-          LOG.info(
-              "At node {}, compare current ({}) vs adjacent ({}) vs totalMaxAtOpen ({})",
-              planNode.getId(), maxMemGrowthAtFragment, adjacentPipeMemGrowth,
-              allMemGrowthAtOpens);
-          maxMemGrowthAtFragment = Math.max(maxMemGrowthAtFragment,
-              Math.max(adjacentPipeMemGrowth, allMemGrowthAtOpens));
-          LOG.info("maxMemGrowthAtPipeline[{}]={}", leftPipeId, maxMemGrowthAtFragment);
-          maxMemGrowthAtPipeline.put(leftPipeId, maxMemGrowthAtFragment);
-
-          maxMemGrowthOfTree = Math.max(maxMemGrowthOfTree, maxMemGrowthAtFragment);
-        }
-      }
-    }
-
-    if (LOG.isInfoEnabled()) {
-      StringBuilder sb = new StringBuilder();
-      for (Map.Entry<PlanNodeId, Long> entry : pipelineMemGrowth.entrySet()) {
-        sb.append(entry.getKey()).append("=").append(entry.getValue()).append(", ");
-      }
-      LOG.info("pipelineMemGrowth={{}}", sb);
-      sb = new StringBuilder();
-      for (Map.Entry<PlanNodeId, Long> entry : maxMemGrowthAtPipeline.entrySet()) {
-        sb.append(entry.getKey()).append("=").append(entry.getValue()).append(", ");
-      }
-      LOG.info("maxMemGrowthAtPipeline={{}}", sb);
-    }
-    LOG.info("totalMinMemEstimate={} maxMemGrowthOfTree={} fixedResourcePerBackend={}",
-        totalMinMemEstimate, maxMemGrowthOfTree, fixedResourcePerBackend);
-    return totalMinMemEstimate + fixedResourcePerBackend + maxMemGrowthOfTree;
   }
 
   /**

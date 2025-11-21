@@ -470,6 +470,28 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     return perInstanceResourceProfile_.getMemEstimateBytes();
   }
 
+  protected long getPerIntstanceMinMemOverestimation() {
+    // There are several PlanNodes that do not reserve initial memory (0), but set
+    // memory estimate, like ExchangeNode. In that case, be conservative by assuming
+    // minimum memory reservation is same as memory estimate in that PlanNode.
+    List<ResourceProfile> resourceProfiles = collectPlanNodes()
+                                                 .stream()
+                                                 .map(PlanNode::getNodeResourceProfile)
+                                                 .collect(Collectors.toList());
+    // resourceProfiles.add(sink_.getResourceProfile());
+    long overestimatedMinMem =
+        resourceProfiles.stream()
+            .map(p
+                -> p.getMinMemReservationBytes() > 0 ? p.getMinMemReservationBytes() :
+                                                       p.getMemEstimateBytes())
+            .reduce(0L, Long::sum);
+    overestimatedMinMem += producedRuntimeFiltersMemReservationBytes_;
+    // Sanity check by comparing against perInstanceResourceProfile_.
+    return Math.min(perInstanceResourceProfile_.getMemEstimateBytes(),
+        Math.max(overestimatedMinMem,
+            perInstanceResourceProfile_.getMinMemReservationBytes()));
+  }
+
   /**
    * Helper for computeResourceProfile(). Populates
    * producedRuntimeFiltersMemReservationBytes_ and

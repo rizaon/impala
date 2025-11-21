@@ -615,7 +615,7 @@ max-parallelism=1824 segment-costs=[54753163494, 24500370827] cpu-comparison-res
    in pipelines: 00(GETNEXT)
 ---- PARALLELPLANS
 Max Per-Host Resource Reservation: Memory=4.59GB Threads=132
-Per-Host Resource Estimates: Memory=70.47GB
+Per-Host Resource Estimates: Memory=70.61GB
 F13:PLAN FRAGMENT [UNPARTITIONED] hosts=1 instances=1
 |  Per-Instance Resources: mem-estimate=184.84KB mem-reservation=0B thread-reservation=1
 |  max-parallelism=1 segment-costs=[25, 0] cpu-comparison-result=480 [max(1 (self) vs 480 (sum children))]

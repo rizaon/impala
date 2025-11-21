@@ -710,7 +710,7 @@ WRITE TO HDFS [tpcds_partitioned_parquet_snap.t, OVERWRITE=false, PARTITION-KEYS
    in pipelines: 00(GETNEXT)
 ---- DISTRIBUTEDPLAN
 Max Per-Host Resource Reservation: Memory=35.69MB Threads=5
-Per-Host Resource Estimates: Memory=64MB
+Per-Host Resource Estimates: Memory=65MB
 F03:PLAN FRAGMENT [HASH(c_nationkey)] hosts=2 instances=2
 |  Per-Instance Resources: mem-estimate=7.33MB mem-reservation=6.00MB thread-reservation=1
 |  max-parallelism=2 segment-costs=[207600, 4409218] cpu-comparison-result=3 [max(2 (self) vs 3 (sum children))]
